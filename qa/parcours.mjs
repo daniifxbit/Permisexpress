@@ -9,6 +9,7 @@
 import { chromium, request } from 'playwright';
 import { demarrer } from './serveur-test.mjs';
 import { normaliserBase, supprimerPreuve } from '../api/_lib/supabase.js';
+import fs from 'node:fs';
 
 const banc = await demarrer();
 const BASE = banc.origine;
@@ -449,6 +450,41 @@ ok('catalogue reconstruit depuis la page',
   ok('adresse normalisée : ' + (entree.trim() || '(vide)'),
     normaliserBase(entree) === attendu, normaliserBase(entree));
 });
+
+/* ---------- 13. Mentions légales : clés SIRET et TVA ----------
+   Les validateurs vivent dans app.js, chargé comme script de page. On extrait
+   leur source telle qu'elle est livrée pour l'exécuter ici : un test qui
+   réimplémenterait l'algorithme ne prouverait rien sur le code réel. */
+{
+  const source = fs.readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+  const extraire = (nom) => {
+    const trouve = source.match(new RegExp('\\n  function ' + nom + '\\([^)]*\\) \\{[\\s\\S]*?\\n  \\}'));
+    if (!trouve) throw new Error('fonction ' + nom + ' introuvable dans app.js');
+    return trouve[0];
+  };
+  const { siretValide, tvaValide } = new Function(
+    extraire('luhnValide') + extraire('siretValide') + extraire('tvaValide')
+    + '\nreturn { siretValide, tvaValide };')();
+
+  /* Jeux d'essai construits, pas empruntés : SIREN à clé de Luhn correcte,
+     puis NIC calculé pour que le SIRET complet passe, et clé TVA dérivée. */
+  const SIRET_A = '552 032 534 00018', TVA_A = 'FR27552032534';
+  const SIRET_B = '552 096 281 00001', TVA_B = 'FR81552096281';
+
+  ok('SIRET valide accepté',                siretValide(SIRET_A));
+  ok('SIRET valide accepté (espaces omis)', siretValide(SIRET_A.replace(/ /g, '')));
+  ok('SIRET fourni le 24/08 rejeté',        !siretValide('812 345 678 00019'));
+  ok('SIRET à un chiffre modifié rejeté',   !siretValide('552 032 534 00019'));
+  ok('SIRET au SIREN invalide rejeté',      !siretValide('552 032 535 00018'));
+  ok('SIRET trop court rejeté',             !siretValide('552032534'));
+  ok('SIRET non numérique rejeté',          !siretValide('55203253400O18'));
+
+  ok('TVA valide acceptée',                 tvaValide(TVA_A, SIRET_A));
+  ok('TVA fournie le 24/08 rejetée',        !tvaValide('FR32812345678', '81234567800019'));
+  ok('TVA à clé fausse rejetée',            !tvaValide('FR12552032534', SIRET_A));
+  ok('TVA d\'un autre SIREN rejetée',       !tvaValide(TVA_B, SIRET_A));
+  ok('TVA de format invalide rejetée',      !tvaValide('FR-27-552032534', SIRET_A));
+}
 
 ok('aucune erreur JavaScript', erreurs.length === 0, erreurs.join(' | '));
 ok('aucune ressource en échec', ressourcesEnEchec.length === 0, ressourcesEnEchec.join(' | '));

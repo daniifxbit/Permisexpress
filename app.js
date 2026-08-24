@@ -34,12 +34,24 @@
 
     /* Contact affiché sur la facture */
     contact: {
-      phone: '+33 6 76 32 61 99',
-      legal: 'Coordonnées société à compléter'
+      phone: '+33 6 76 32 61 99'
     },
 
-    /* Facture : mentions légales — À COMPLÉTER (SIRET, TVA, adresse) */
-    invoiceLegal: 'Mentions légales et informations société à compléter (SIRET, TVA, adresse).'
+    /* Mentions légales de la facture — À COMPLÉTER.
+       SIRET et numéro de TVA portent chacun une clé de contrôle, vérifiée au
+       chargement : tant qu'ils ne sont pas valides, la facture n'affiche aucun
+       identifiant et conserve la mention « à compléter ». Une facture ne peut
+       donc pas partir avec un numéro inexact.
+
+       Les valeurs communiquées le 24/08/2026 — SIRET 812 345 678 00019,
+       TVA FR 32 812345678, 12 rue de la Paix 75002 Paris — ne passent pas ce
+       contrôle (clé de Luhn fausse ; clé TVA attendue 25). Elles n'ont donc
+       pas été retenues. */
+    company: {
+      siret: '',
+      tva: '',
+      adresse: ''
+    }
 
     /* Le code d'accès administrateur n'est plus ici : il est vérifié par
        /api/admin/login, à partir de son empreinte scrypt stockée en variable
@@ -175,6 +187,47 @@
     var d = new Date(iso);
     if (isNaN(d)) return String(iso);
     return d.toLocaleString('fr-FR');
+  }
+
+  /* Clé de Luhn : un chiffre sur deux doublé en partant de la droite, la
+     somme doit être un multiple de 10. Vaut pour le SIREN et le SIRET. */
+  function luhnValide(chiffres) {
+    if (!/^\d+$/.test(chiffres)) return false;
+    var somme = 0;
+    for (var i = 0; i < chiffres.length; i++) {
+      var c = Number(chiffres.charAt(chiffres.length - 1 - i));
+      if (i % 2 === 1) { c *= 2; if (c > 9) c -= 9; }
+      somme += c;
+    }
+    return somme % 10 === 0;
+  }
+
+  function siretValide(valeur) {
+    var n = String(valeur || '').replace(/\s+/g, '');
+    return n.length === 14 && luhnValide(n) && luhnValide(n.slice(0, 9));
+  }
+
+  /* TVA intracommunautaire française : clé = (12 + 3 × (SIREN mod 97)) mod 97. */
+  function tvaValide(valeur, siret) {
+    var n = String(valeur || '').replace(/\s+/g, '').toUpperCase();
+    if (!/^FR[0-9A-Z]{2}\d{9}$/.test(n)) return false;
+    var siren = n.slice(4);
+    // Le numéro de TVA doit porter le SIREN de l'entreprise.
+    if (siret && siren !== String(siret).replace(/\s+/g, '').slice(0, 9)) return false;
+    var attendue = String((12 + 3 * (Number(siren) % 97)) % 97);
+    if (attendue.length < 2) attendue = '0' + attendue;
+    return n.slice(2, 4) === attendue;
+  }
+
+  /* Les mentions ne sont imprimées que si tout est cohérent : un identifiant
+     inexact sur une facture vaut mieux absent que faux. */
+  function mentionsLegales() {
+    var c = SITE.company;
+    if (!c.adresse || !siretValide(c.siret) || !tvaValide(c.tva, c.siret)) return null;
+    return {
+      adresse: c.adresse,
+      ligne: 'SIRET ' + c.siret + ' · TVA ' + c.tva + ' · ' + c.adresse
+    };
   }
 
   function permitById(id) {
@@ -1051,6 +1104,7 @@
     var method = currentMethod();
     var prix = montant() || 0;
     var invoiceNo = state.dossier.replace('PE-', 'FA-');
+    var mentions = mentionsLegales();
     var nomFormation = permit ? permit.name : (state.trackFound ? state.trackFound.permis : '—');
 
     function esc(value) {
@@ -1072,7 +1126,8 @@
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:24px">' +
       '<div><h1>Permis <span style="color:#B8880E">Express</span></h1>' +
       '<div style="color:#8B90A0;font-size:12px">Votre permis, notre priorité</div>' +
-      '<div style="margin-top:10px;font-size:12px;color:#5A5F6E">' + esc(SITE.contact.phone) + '<br>' + esc(SITE.contact.legal) + '</div></div>' +
+      '<div style="margin-top:10px;font-size:12px;color:#5A5F6E">' + esc(SITE.contact.phone) + '<br>' +
+      esc(mentions ? mentions.adresse : 'Coordonnées société à compléter') + '</div></div>' +
       '<div style="text-align:right"><div style="font-size:18px;font-weight:700">FACTURE</div>' +
       '<div style="font-family:monospace;margin-top:6px">' + esc(invoiceNo) + '</div>' +
       '<div style="color:#8B90A0">' + esc(frJour(state.dossierDate)) + '</div>' +
@@ -1101,7 +1156,9 @@
       row('Statut', payStatusLabel()) +
       '</table><div style="margin-top:12px;font-size:12px;color:#5A5F6E">Ce document confirme l\'enregistrement de votre commande. ' +
       'Il ne vaut pas quittance : le paiement sera vérifié par notre équipe, qui vous adressera la confirmation définitive.</div></div>' +
-      '<div style="font-size:11px;color:#8B90A0;margin-top:20px">' + esc(SITE.invoiceLegal) + '</div>' +
+      '<div style="font-size:11px;color:#8B90A0;margin-top:20px">' +
+      esc(mentions ? mentions.ligne
+        : 'Mentions légales et informations société à compléter (SIRET, TVA, adresse).') + '</div>' +
       '</body></html>';
   }
 
@@ -1335,6 +1392,12 @@
     $('#bankBic').textContent = SITE.bank.bic;
     $('#bankRib').textContent = SITE.bank.rib;
     show($('#bankTodo'), !SITE.bank.complete);
+
+    // Signale une saisie invalide plutôt que de la laisser disparaître en silence.
+    if ((SITE.company.siret || SITE.company.tva) && !mentionsLegales()) {
+      console.warn('[Permis Express] SIRET ou numéro de TVA invalide : les mentions '
+        + 'légales ne seront pas imprimées sur les factures.');
+    }
 
     fillForm();
     wire();
