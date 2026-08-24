@@ -160,14 +160,23 @@ export async function telechargerPreuve(chemin) {
   };
 }
 
+/* La suppression se fait par lot sur le bucket, avec la liste des chemins dans
+   le corps — c'est la forme qu'utilise le client officiel. La réponse contient
+   les objets réellement supprimés : c'est le seul signal fiable. Relire le
+   fichier ensuite ne prouve rien, le stockage servant les objets via un cache.
+
+   Renvoie { supprimes, statut } pour que le diagnostic puisse en rendre compte. */
 export async function supprimerPreuve(chemin) {
-  // La suppression se fait par lot sur le bucket, avec la liste des chemins
-  // dans le corps — c'est la forme qu'utilise le client officiel.
   const r = await fetch(base() + '/storage/v1/object/' + BUCKET, {
     method: 'DELETE',
     headers: entetes({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ prefixes: [chemin] })
   });
   // 404 : le fichier n'existe plus, le résultat voulu est déjà atteint.
-  if (!r.ok && r.status !== 404) await echec(r, 'supprimerPreuve');
+  if (r.status === 404) return { supprimes: 0, statut: 404 };
+  if (!r.ok) await echec(r, 'supprimerPreuve');
+
+  let liste = [];
+  try { liste = await r.json(); } catch { /* réponse sans corps */ }
+  return { supprimes: Array.isArray(liste) ? liste.length : 0, statut: r.status };
 }

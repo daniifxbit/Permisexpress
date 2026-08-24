@@ -8,7 +8,7 @@
 
 import { chromium, request } from 'playwright';
 import { demarrer } from './serveur-test.mjs';
-import { normaliserBase } from '../api/_lib/supabase.js';
+import { normaliserBase, supprimerPreuve } from '../api/_lib/supabase.js';
 
 const banc = await demarrer();
 const BASE = banc.origine;
@@ -398,7 +398,18 @@ await horsLigne.locator('.chosen-line [data-action="back-permit"]').click();
 ok('catalogue reconstruit depuis la page',
   (await horsLigne.locator('#permitGrid .pick').count()) === 8);
 
-/* ---------- 11. Adresse Supabase mal saisie ----------
+/* ---------- 11. Suppression : on se fie à la liste renvoyée ---------- */
+{
+  const restants = [...banc.fichiers.keys()];
+  const avant = banc.fichiers.size;
+  const reel = await supprimerPreuve(restants[0]);
+  ok('suppression : le stockage confirme le fichier retiré', reel.supprimes === 1, JSON.stringify(reel));
+  ok('suppression : le fichier a bien disparu', banc.fichiers.size === avant - 1);
+  const absent = await supprimerPreuve('inexistant/nulle-part.pdf');
+  ok('suppression d\'un fichier absent : aucune suppression annoncée', absent.supprimes === 0);
+}
+
+/* ---------- 12. Adresse Supabase mal saisie ----------
    Coller l'adresse de l'API REST au lieu de celle du projet envoyait toutes
    les requêtes vers .../rest/v1/rest/v1/… — rejetées par PostgREST. */
 [

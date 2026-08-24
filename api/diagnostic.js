@@ -147,11 +147,17 @@ export default async function handler(req, res) {
         }
 
         try {
-          await supprimerPreuve(chemin);
-          const reste = await telechargerPreuve(chemin);
-          ajouter('Suppression du fichier de test', reste ? 'ko' : 'ok',
-            reste ? 'le fichier est toujours présent' : 'nettoyage effectué',
-            reste ? 'Les anciennes preuves ne seront pas purgées après un renvoi.' : '');
+          // On se fie à la liste renvoyée par le stockage, pas à une relecture :
+          // les objets sont servis via un cache, une copie pourrait subsister
+          // quelques minutes alors que la suppression a bien eu lieu.
+          const { supprimes, statut } = await supprimerPreuve(chemin);
+          ajouter('Suppression du fichier de test', supprimes > 0 ? 'ok' : 'ko',
+            supprimes > 0
+              ? 'nettoyage effectué'
+              : 'le stockage n\'a supprimé aucun fichier (réponse HTTP ' + statut + ')',
+            supprimes > 0 ? '' :
+              'Sans conséquence sur les inscriptions : seules les anciennes preuves ne seront '
+              + 'pas purgées après un renvoi. Signalez-le-moi avec le numéro affiché ci-dessus.');
         } catch (e) {
           ajouter('Suppression du fichier de test', 'ko', expurger(e.message),
             'Les anciennes preuves ne seront pas purgées après un renvoi.');
