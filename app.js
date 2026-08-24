@@ -22,25 +22,19 @@
     promoBar: true,
     gallery: false, // passer à true une fois de vraies photos ajoutées
 
-    /* Coordonnées bancaires (virement).
-       Clé IBAN et clé RIB vérifiées ; le RIB correspond bien à l'IBAN. */
-    bank: {
-      holder: 'DIDIER LEON DELABY',
-      iban: 'FR76 1723 8000 0100 4567 8420 305',
-      bic: 'SCSYFRP2',
-      rib: '17238 00001 00456784203 05',
-      complete: true
+    /* Coordonnées bancaires : elles vivent dans coordonnees-bancaires.js, un
+       fichier volontairement minuscule pour pouvoir être modifié sans risque.
+       Si ce fichier est absent ou comporte une erreur de syntaxe, le
+       navigateur ne définit pas la variable et l'on retombe ici — le site
+       continue de fonctionner au lieu de s'interrompre. */
+    bank: window.COORDONNEES_BANCAIRES || {
+      titulaire: '', iban: '', bic: '', rib: '', reference: 'PE-Paiement complet service'
     },
 
     /* Contact affiché sur la facture */
     contact: {
       phone: '+33 6 76 32 61 99'
     },
-
-    /* Référence que le client indique sur son virement. Elle est la même pour
-       tous : le rapprochement d'un virement avec un dossier se fait par la
-       preuve de paiement jointe, pas par le libellé bancaire. */
-    referenceVirement: 'PE-Paiement complet service',
 
     /* Coordonnées de l'émetteur, imprimées sur la facture.
 
@@ -205,6 +199,29 @@
     return somme % 10 === 0;
   }
 
+  /* Clé IBAN : les quatre premiers caractères passent à la fin, les lettres
+     deviennent des nombres (A=10 … Z=35), le reste modulo 97 doit valoir 1.
+     Attrape une faute de frappe dans la quasi-totalité des cas. */
+  function ibanValide(valeur) {
+    var n = String(valeur || '').replace(/\s+/g, '').toUpperCase();
+    if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(n)) return false;
+    var permute = n.slice(4) + n.slice(0, 4);
+    var reste = 0;
+    for (var i = 0; i < permute.length; i++) {
+      var c = permute.charAt(i);
+      var valeurC = /[0-9]/.test(c) ? c : String(c.charCodeAt(0) - 55);
+      for (var j = 0; j < valeurC.length; j++) {
+        reste = (reste * 10 + Number(valeurC.charAt(j))) % 97;
+      }
+    }
+    return reste === 1;
+  }
+
+  /* Coordonnées exploitables : un titulaire et un IBAN qui passe sa clé. */
+  function banqueUtilisable() {
+    return Boolean(String(SITE.bank.titulaire || '').trim()) && ibanValide(SITE.bank.iban);
+  }
+
   function siretValide(valeur) {
     var n = String(valeur || '').replace(/\s+/g, '');
     return n.length === 14 && luhnValide(n) && luhnValide(n.slice(0, 9));
@@ -279,7 +296,7 @@
   }
 
   function payRef() {
-    return SITE.referenceVirement;
+    return SITE.bank.reference || 'PE-Paiement complet service';
   }
 
   /* ========================================================================
@@ -1288,7 +1305,7 @@
     copy: function (btn) {
       var key = btn.getAttribute('data-copy');
       var values = {
-        holder: SITE.bank.holder,
+        holder: SITE.bank.titulaire,
         // L'IBAN se colle sans espaces : les formulaires bancaires les refusent
         // souvent, et les banques les ignorent de toute façon.
         iban: SITE.bank.iban.replace(/\s+/g, ''),
@@ -1389,17 +1406,42 @@
      14. Démarrage
      ======================================================================== */
 
+  /* Des coordonnées inexactes enverraient l'argent d'un client sur un compte
+     inexistant. En cas de doute, on n'affiche rien et on renvoie au téléphone :
+     un paiement retardé vaut mieux qu'un virement perdu. */
+  function afficherCoordonneesBancaires() {
+    var utilisable = banqueUtilisable();
+    var notice = $('#bankNotice');
+
+    show($('#bankList'), utilisable);
+    show($('#payActions'), utilisable);
+    show(notice, !utilisable);
+
+    if (utilisable) {
+      $('#bankHolder').textContent = SITE.bank.titulaire;
+      $('#bankIban').textContent = SITE.bank.iban;
+      $('#bankBic').textContent = SITE.bank.bic;
+      $('#bankRib').textContent = SITE.bank.rib || '';
+      show($('#bankRib').closest('.bank-row'), Boolean(SITE.bank.rib));
+      return;
+    }
+
+    var renseigne = String(SITE.bank.titulaire || '').trim() || String(SITE.bank.iban || '').trim();
+    notice.textContent = renseigne
+      ? 'Coordonnées bancaires momentanément indisponibles. Appelez-nous au '
+        + SITE.contact.phone + ' pour régler votre inscription.'
+      : 'coordonnées bancaires à compléter dans coordonnees-bancaires.js avant mise en ligne';
+    console.warn('[Permis Express] IBAN absent ou invalide (clé de contrôle) : '
+      + 'les coordonnées ne sont pas affichées. Corrigez coordonnees-bancaires.js.');
+  }
+
   function init() {
     collectRefs();
 
     show(refs.promoBar, SITE.promoBar);
     show(refs.gallery, SITE.gallery);
 
-    $('#bankHolder').textContent = SITE.bank.holder;
-    $('#bankIban').textContent = SITE.bank.iban;
-    $('#bankBic').textContent = SITE.bank.bic;
-    $('#bankRib').textContent = SITE.bank.rib;
-    show($('#bankTodo'), !SITE.bank.complete);
+    afficherCoordonneesBancaires();
 
     // Signale une saisie invalide plutôt que de la laisser disparaître en silence.
     if (identifiantsRefuses()) {

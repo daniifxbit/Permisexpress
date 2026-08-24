@@ -798,7 +798,7 @@
         <div class="panel" data-pay-panel="vir" hidden>
           <p class="panel__title">Virement bancaire</p>
           <p class="panel__lead">Effectuez le virement depuis votre banque en indiquant la référence ci-dessous, puis déclarez-le.</p>
-          <div class="bank-list">
+          <div class="bank-list" id="bankList">
             <div class="bank-row">
               <div>
                 <p class="bank-row__label">Titulaire</p>
@@ -837,8 +837,8 @@
               <button type="button" class="copy-btn" data-action="copy" data-copy="ref">Copier</button>
             </div>
           </div>
-          <p class="todo-note" id="bankTodo">coordonnées bancaires réelles à compléter avant mise en ligne</p>
-          <div class="pay-actions">
+          <p class="todo-note" id="bankNotice" hidden></p>
+          <div class="pay-actions" id="payActions">
             <button type="button" class="declare-btn" data-action="declare" aria-pressed="false">J'ai effectué le virement</button>
             <label class="proof-field" data-proof-field>
               <span>Joindre une preuve de paiement (obligatoire)</span>
@@ -903,6 +903,7 @@
   </div>
 </div>
 
+<script src="coordonnees-bancaires.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>

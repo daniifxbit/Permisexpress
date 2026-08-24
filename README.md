@@ -41,6 +41,7 @@ Le site ne prétend jamais qu'un paiement a été encaissé. Il distingue trois
 
 ```
 index.html               Page complète (vitrine + surcouches)
+coordonnees-bancaires.js Compte qui reçoit les virements — voir ci-dessous
 styles.css               Feuille de styles unique
 app.js                   Logique de la page — ne contient aucun secret
 assets/                  Logo, icônes, polices auto-hébergées
@@ -135,12 +136,39 @@ SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run verifier
 
 En haut de `app.js`, dans l'objet `SITE` :
 
-| Élément | Clé | Statut |
+| Élément | Où | Statut |
 |---|---|---|
-| Coordonnées bancaires (titulaire, IBAN, BIC) | `SITE.bank` | **à fournir** |
+| Coordonnées bancaires | `coordonnees-bancaires.js` | renseignées |
 
-Les coordonnées bancaires sont renseignées et `SITE.bank.complete` vaut `true`,
-ce qui retire l'encadré orange « à compléter » du panneau de virement.
+### Changer les coordonnées bancaires
+
+Tout est dans **`coordonnees-bancaires.js`**, à la racine du dépôt : une
+douzaine de lignes, isolées exprès du reste du code pour pouvoir être modifiées
+sans risque et sans outil.
+
+Depuis GitHub, sans rien installer :
+
+1. ouvrir le dépôt, cliquer sur `coordonnees-bancaires.js` ;
+2. cliquer sur l'icône crayon (**Edit this file**) ;
+3. modifier ce qui est **entre les guillemets**, sans toucher aux guillemets,
+   aux virgules ni aux accolades ;
+4. cliquer **Commit changes**, puis à nouveau **Commit changes** ;
+5. attendre une minute : Vercel redéploie tout seul.
+
+Deux garde-fous rendent l'opération sûre :
+
+- **L'IBAN est vérifié au chargement** par sa clé de contrôle, qui détecte
+  quasiment toute faute de frappe. S'il ne passe pas, le site n'affiche
+  **aucune** coordonnée et invite le client à téléphoner — un paiement retardé
+  vaut mieux qu'un virement envoyé sur un compte inexistant. Un avertissement
+  est écrit en console.
+- **Une erreur de syntaxe dans le fichier ne casse pas le site.** Le navigateur
+  ignore alors le fichier, `app.js` s'en aperçoit et la page continue de
+  fonctionner ; seul le panneau de virement affiche le message ci-dessus.
+
+Après modification, ouvrir la page, cliquer *Commencer ma demande* et aller
+jusqu'à l'étape de paiement : si les nouvelles coordonnées s'affichent, c'est
+bon. Sinon, le message renvoyant au téléphone signale une faute de frappe.
 
 ### Mentions de la facture
 

@@ -141,8 +141,8 @@ ok('message preuve obligatoire', (await page.locator('#confirmHint').textContent
     (await page.locator('#bankRib').textContent()).replace(/\s+/g, '') === iban.slice(4));
   // On interroge l'attribut `hidden` porté par l'encadré lui-même : son panneau
   // est masqué à cet instant, donc isHidden() serait vrai dans les deux cas.
-  ok('encadré « à compléter » retiré du virement',
-    await page.locator('#bankTodo').evaluate((n) => n.hidden) === true);
+  ok('aucun avertissement sur les coordonnées',
+    await page.locator('#bankNotice').evaluate((n) => n.hidden) === true);
   ok('aucun moyen de paiement sans coordonnées n\'est proposé',
     (await page.locator('[data-pay-panel]').count()) === 1);
 }
@@ -500,6 +500,52 @@ ok('catalogue reconstruit depuis la page',
   ok('TVA à clé fausse rejetée',            !tvaValide('FR12552032534', SIRET_A));
   ok('TVA d\'un autre SIREN rejetée',       !tvaValide(TVA_B, SIRET_A));
   ok('TVA de format invalide rejetée',      !tvaValide('FR-27-552032534', SIRET_A));
+}
+
+/* ---------- 15. IBAN erroné : rien n'est affiché ----------
+   Un chiffre modifié dans coordonnees-bancaires.js ne doit pas aboutir à un
+   virement envoyé sur un compte inexistant. */
+{
+  const fautif = await contexte.newPage();
+  await fautif.route('**/coordonnees-bancaires.js', (route) => route.fulfill({
+    contentType: 'text/javascript',
+    body: "window.COORDONNEES_BANCAIRES = { titulaire: 'DIDIER LEON DELABY',"
+      + " iban: 'FR76 1723 8000 0100 4567 8420 306', bic: 'SCSYFRP2', rib: '', reference: 'PE-Test' };"
+  }));
+  const alertes = [];
+  fautif.on('console', (m) => { if (m.type() === 'warning') alertes.push(m.text()); });
+  await fautif.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await fautif.locator('.card-tarif[data-permit="B"] [data-action="choose"]').click();
+  await fautif.fill('#f-prenom', 'Test'); await fautif.fill('#f-nom', 'Iban');
+  await fautif.fill('#f-naissance', '1990-01-01'); await fautif.fill('#f-tel', '0600000000');
+  await fautif.fill('#f-email', 'test@exemple.fr'); await fautif.fill('#f-ville', 'Paris');
+  await fautif.fill('#f-adresse', 'rue');
+  await fautif.locator('[data-action="submit-info"]').click();
+  await fautif.locator('[data-action="to-pay"]').click();
+
+  ok('IBAN erroné : aucune coordonnée affichée', await fautif.locator('#bankList').isHidden());
+  ok('IBAN erroné : dépôt de preuve indisponible', await fautif.locator('#payActions').isHidden());
+  const avis = await fautif.locator('#bankNotice').textContent();
+  ok('IBAN erroné : le client est renvoyé au téléphone', avis.includes('+33 6 76 32 61 99'));
+  ok('IBAN erroné : avertissement en console', alertes.some((a) => a.includes('IBAN')));
+  ok('IBAN erroné : le reste du site fonctionne',
+    (await fautif.locator('#tarifsGrid .card-tarif').count()) === 8);
+  await fautif.close();
+}
+
+/* ---------- 16. Fichier de coordonnées cassé : le site tient ---------- */
+{
+  const casse = await contexte.newPage();
+  await casse.route('**/coordonnees-bancaires.js', (route) => route.fulfill({
+    contentType: 'text/javascript', body: 'window.COORDONNEES_BANCAIRES = { titulaire: ;;; }'
+  }));
+  await casse.goto(BASE + '/', { waitUntil: 'networkidle' });
+  ok('fichier de coordonnées invalide : la page se charge',
+    (await casse.locator('#tarifsGrid .card-tarif').count()) === 8);
+  await casse.locator('.card-tarif[data-permit="B"] [data-action="choose"]').click();
+  ok('fichier de coordonnées invalide : le parcours démarre',
+    await casse.locator('.funnel-step[data-step="2"]').isVisible());
+  await casse.close();
 }
 
 ok('aucune erreur JavaScript', erreurs.length === 0, erreurs.join(' | '));
