@@ -404,9 +404,10 @@
   </section>
 
   <!-- ===================== Attestation =====================
-       Masquée tant que `assets/attestation.jpg` n'existe pas : app.js n'affiche
-       la section qu'une fois l'image réellement chargée. Déposer le fichier
-       dans assets/ suffit donc à la faire apparaître, sans rien modifier ici. -->
+       Masquée tant qu'aucun document n'existe dans assets/ : app.js cherche
+       `attestation` avec les extensions d'image courantes, garde la première
+       qui répond, remplit les liens ci-dessous et révèle alors la section.
+       Déposer le fichier suffit donc, sans rien modifier ici. -->
   <section class="section--band section--alt section--bordered" id="attestation" hidden>
     <div class="shell attestation">
       <div class="attestation__copy">
@@ -419,13 +420,13 @@
           <li>Attestation d'autorisation de début d'activité, du 24 mai 2024</li>
           <li>Agrément et SIRET vérifiables auprès des services publics</li>
         </ul>
-        <a class="btn btn-gold btn-md" href="assets/attestation.jpg" target="_blank" rel="noopener">
+        <a class="btn btn-gold btn-md" href="#attestation" data-attestation-lien target="_blank" rel="noopener">
           Voir le document en grand
         </a>
       </div>
 
-      <a class="attestation__doc" href="assets/attestation.jpg" target="_blank" rel="noopener">
-        <img id="attestationImg" src="assets/attestation.jpg"
+      <a class="attestation__doc" href="#attestation" data-attestation-lien target="_blank" rel="noopener">
+        <img id="attestationImg"
              alt="Attestation d'autorisation de début d'activité de l'auto-école Permis Express, signée par son gérant.">
       </a>
     </div>

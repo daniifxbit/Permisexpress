@@ -45,14 +45,10 @@ const navigateur = await chromium.launch(
 const contexte = await navigateur.newContext({ viewport: { width: 1280, height: 900 }, locale: 'fr-FR' });
 const page = await contexte.newPage();
 
-/* Certains appels échouent volontairement pendant les tests (mauvaise adresse
+/* Deux appels échouent volontairement pendant les tests (mauvaise adresse
    e-mail, mauvais code d'accès) : le navigateur les journalise comme erreurs
-   alors que la page les gère correctement. On les distingue des vraies.
-
-   S'y ajoute le document d'attestation, qui n'est pas versionné : l'exploitant
-   le dépose dans assets/. Retirer cette entrée le jour où le fichier y est. */
-const ECHECS_ATTENDUS = ['/api/suivi', '/api/admin/login', '/api/admin/parametres',
-  '/assets/attestation.jpg'];
+   alors que la page les gère correctement. On les distingue des vraies. */
+const ECHECS_ATTENDUS = ['/api/suivi', '/api/admin/login', '/api/admin/parametres'];
 
 const erreurs = [];
 const ressourcesEnEchec = [];
@@ -128,8 +124,12 @@ ok('8 cartes tarifs', (await page.locator('#tarifsGrid .card-tarif').count()) ==
 ok('6 avis', (await page.locator('.card-review').count()) === 6);
 ok('6 questions FAQ', (await page.locator('.faq-item').count()) === 6);
 ok('galerie masquée', await page.locator('#galerie').isHidden());
-ok('attestation masquée tant que le document manque',
-  await page.locator('#attestation').isHidden());
+await page.locator('#attestation').waitFor({ state: 'visible' });
+ok('attestation affichée', await page.locator('#attestation').isVisible());
+ok('attestation : le document est cliquable',
+  await page.locator('.attestation__doc').getAttribute('href') === 'assets/attestation.jpg');
+ok('attestation : image décrite pour les lecteurs d\'écran',
+  ((await page.locator('#attestationImg').getAttribute('alt')) || '').length > 20);
 ok('section suivi visible', await page.locator('#suivi').isVisible());
 ok('prix Permis B = 800 €',
   (await page.locator('.card-tarif[data-permit="B"] .card-tarif__price').textContent()).trim() === '800 €');
@@ -726,22 +726,27 @@ await page.locator('[data-action="admin-close"]').click();
   await horsLigne.close();
 }
 
-/* ---------- 17. Attestation : la section suit la présence du document ----------
-   Le fichier n'est pas dans le dépôt (l'exploitant le dépose lui-même). On
-   vérifie les deux états : absent → section masquée, présent → section visible. */
+/* ---------- 17. Attestation : extension libre, section masquée si absente ----------
+   Le document est déposé à la main dans assets/ : le code doit accepter les
+   extensions courantes, et ne rien montrer si aucune ne répond. */
 {
-  const avec = await contexte.newPage();
-  await avec.route('**/assets/attestation.jpg', (route) =>
+  const autre = await contexte.newPage();
+  await autre.route('**/assets/attestation.jpg', (route) => route.fulfill({ status: 404, body: '' }));
+  await autre.route('**/assets/attestation.png', (route) =>
     route.fulfill({ contentType: 'image/png', body: PNG }));
-  await avec.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await autre.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await autre.locator('#attestation').waitFor({ state: 'visible' });
+  ok('attestation : un .png est accepté à la place du .jpg',
+    await autre.locator('.attestation__doc').getAttribute('href') === 'assets/attestation.png');
+  await autre.close();
 
-  ok('attestation : section affichée quand le document existe',
-    await avec.locator('#attestation').isVisible());
-  ok('attestation : le document est cliquable',
-    await avec.locator('.attestation__doc').getAttribute('href') === 'assets/attestation.jpg');
-  ok('attestation : image décrite pour les lecteurs d\'écran',
-    ((await avec.locator('#attestationImg').getAttribute('alt')) || '').length > 20);
-  await avec.close();
+  const sans = await contexte.newPage();
+  await sans.route('**/assets/attestation.*', (route) => route.fulfill({ status: 404, body: '' }));
+  await sans.goto(BASE + '/', { waitUntil: 'networkidle' });
+  ok('attestation : section masquée si aucun document', await sans.locator('#attestation').isHidden());
+  ok('attestation : le reste du site fonctionne',
+    (await sans.locator('#tarifsGrid .card-tarif').count()) === 8);
+  await sans.close();
 }
 
 ok('aucune erreur JavaScript', erreurs.length === 0, erreurs.join(' | '));

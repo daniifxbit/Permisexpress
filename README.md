@@ -205,18 +205,18 @@ de paiement jointe, pas sur le libellé bancaire.
 
 ### Attestation d'activité
 
-La section `#attestation` affiche le document de l'auto-école. Elle n'apparaît
-que si **`assets/attestation.jpg`** existe : `app.js` attend que l'image se
-charge vraiment avant de la révéler, donc une page sans document ne montre ni
-cadre vide ni image cassée. Déposer le fichier suffit — rien d'autre à modifier.
+La section `#attestation` affiche le document de l'auto-école, déposé dans
+`assets/` sous le nom `attestation`. L'extension est libre — `.jpg`, `.jpeg`,
+`.png` ou `.webp` : `app.js` essaie ces quatre noms et garde le premier qui
+répond, pour que l'exploitant n'ait pas à renommer le fichier sorti de son
+téléphone. Si aucun ne répond, la section reste masquée : une page sans
+document ne montre ni cadre vide ni image cassée.
 
-Depuis GitHub, sans rien installer : ouvrir le dossier `assets`, **Add file →
-Upload files**, déposer l'image nommée exactement `attestation.jpg`, puis
-**Commit changes**. Vercel redéploie tout seul.
-
-> `qa/parcours.mjs` liste `/assets/attestation.jpg` parmi les échecs de
-> chargement attendus, puisque le fichier n'est pas versionné. Retirer cette
-> entrée le jour où il l'est.
+Pour remplacer le document depuis GitHub, sans rien installer : ouvrir le
+dossier `assets`, **Add file → Upload files**, déposer l'image nommée
+`attestation`, puis **Commit changes**. Vercel redéploie tout seul. Si
+l'ancienne version portait une autre extension, la supprimer — sinon c'est
+elle qui reste affichée, `.jpg` passant avant `.png`.
 
 ### Numéro WhatsApp
 

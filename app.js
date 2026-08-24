@@ -1654,19 +1654,32 @@
       + 'administrateur, onglet Réglages.');
   }
 
-  /* La section « Attestation » ne s'affiche que si le document existe vraiment
-     dans assets/. Déposer le fichier suffit à la faire apparaître ; tant qu'il
-     manque, la page d'accueil ne montre ni cadre vide ni image cassée. */
+  /* Le document d'attestation est déposé à la main dans assets/, et selon
+     l'appareil qui l'a produit il s'appelle .jpg, .jpeg, .png ou .webp. On
+     essaie ces extensions dans l'ordre et on garde la première qui répond :
+     l'exploitant n'a pas à renommer son fichier. Si aucune ne répond, la
+     section reste masquée — ni cadre vide ni image cassée sur l'accueil. */
+  var ATTESTATIONS = ['assets/attestation.jpg', 'assets/attestation.jpeg',
+    'assets/attestation.png', 'assets/attestation.webp'];
+
   function afficherAttestation() {
     var section = $('#attestation');
     var img = $('#attestationImg');
     if (!section || !img) return;
 
-    if (img.complete) {
-      if (img.naturalWidth) show(section, true);
-      return;
-    }
-    img.addEventListener('load', function () { show(section, true); });
+    var i = 0;
+    (function essayer() {
+      if (i >= ATTESTATIONS.length) return;
+      var chemin = ATTESTATIONS[i++];
+      var sonde = new Image();
+      sonde.onerror = essayer;
+      sonde.onload = function () {
+        img.src = chemin;
+        $$('[data-attestation-lien]').forEach(function (a) { a.href = chemin; });
+        show(section, true);
+      };
+      sonde.src = chemin;
+    })();
   }
 
   function init() {
