@@ -1,0 +1,7 @@
+# Dépendances de test (voir README.md § Tests)
+node_modules/
+package-lock.json
+
+# Divers
+.DS_Store
+Thumbs.db
