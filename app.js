@@ -125,6 +125,7 @@
     records: [],
     totaux: { all: 0, pending: 0, approved: 0, rejected: 0 },
     adminAuth: false,
+    adminChargement: false,
     adminFilter: 'all',
     adminMsg: {},          // numéro -> message en cours de saisie
 
@@ -755,6 +756,8 @@
   function openAdmin() {
     refs.adminError.textContent = '';
     refs.adminListError.textContent = '';
+    state.records = [];
+    state.adminChargement = true;
     openOverlay(refs.admin);
     renderAdmin();
 
@@ -808,13 +811,22 @@
 
   function chargerAdmin() {
     refs.adminListError.textContent = '';
+    // On vide la liste pendant le chargement : réafficher les dossiers de la
+    // consultation précédente montrerait un état périmé — un dossier déjà
+    // rejeté alors que le client vient d'envoyer une nouvelle preuve.
+    state.records = [];
+    state.adminChargement = true;
+    renderAdmin();
+
     return api('/api/admin/dossiers?statut=' + encodeURIComponent(state.adminFilter), { method: 'GET' })
       .then(function (d) {
         state.records = d.dossiers || [];
         state.totaux = d.totaux || state.totaux;
+        state.adminChargement = false;
         renderAdmin();
       })
       .catch(function (e) {
+        state.adminChargement = false;
         // 401 : la session a expiré pendant la consultation.
         if (e.statut === 401) {
           state.adminAuth = false;
@@ -844,7 +856,11 @@
     var plural = totaux.all > 1 ? 's' : '';
     refs.adminCount.textContent = totaux.all + ' demande' + plural + ' enregistrée' + plural;
 
-    show(refs.adminEmpty, state.records.length === 0 && !refs.adminListError.textContent);
+    refs.adminEmpty.textContent = state.adminChargement
+      ? 'Chargement des demandes…'
+      : 'Aucune demande dans cette catégorie pour le moment.';
+    show(refs.adminEmpty,
+      state.records.length === 0 && !refs.adminListError.textContent);
 
     refs.adminList.textContent = '';
     state.records.forEach(function (record) {

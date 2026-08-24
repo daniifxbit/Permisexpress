@@ -53,6 +53,7 @@ api/                     Fonctions serverless (Node, sans dépendance)
     auth.js              Empreinte du code admin, cookies de session, jetons
     http.js              Utilitaires de requête et de réponse
   catalogue.js           GET  — formations et moyens de paiement
+  diagnostic.js          GET  — page de contrôle de la configuration
   preuve-url.js          POST — URL de dépôt signée pour la preuve
   dossiers.js            POST — création d'une demande / renvoi de preuve
   suivi.js               POST — consultation par le client (numéro + e-mail)
@@ -119,12 +120,17 @@ navigateur ni committée.
 
 ### 4. Vérifier que tout répond
 
+Ouvrez **`https://votre-site/api/diagnostic`** dans un navigateur. La page
+contrôle chaque condition dans l'ordre — variables d'environnement, tables,
+bucket — et effectue un aller-retour complet sur le stockage : demande d'URL
+signée, dépôt, relecture, suppression. Pour chaque point en échec, elle indique
+la marche à suivre. Aucun secret n'y figure.
+
+Depuis un terminal, l'équivalent plus détaillé :
+
 ```sh
 SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run verifier
 ```
-
-Le script crée puis supprime un dossier et un fichier de test, et signale
-précisément ce qui ne fonctionne pas. À lancer avant la première mise en ligne.
 
 ### 5. Compléter les informations commerciales
 
@@ -173,6 +179,13 @@ Deux interrupteurs d'affichage, toujours dans `SITE` :
   formation, jamais un prix.
 - **Le verrouillage après décision est appliqué côté serveur**, pas seulement
   par l'affichage.
+
+## En cas de problème
+
+Le parcours affiche « Une erreur est survenue » quand une fonction serveur
+échoue : le détail est volontairement masqué au visiteur. Pour savoir ce qui
+se passe, ouvrez **`/api/diagnostic`**. Après toute modification des variables
+d'environnement, redéployez : Vercel ne les recharge qu'au déploiement suivant.
 
 ## Limites connues
 

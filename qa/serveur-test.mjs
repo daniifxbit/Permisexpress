@@ -134,9 +134,17 @@ function demarrerFauxSupabase() {
       }
     }
 
-    /* ---- Storage : demande d'URL de dépôt signée ---- */
+    /* ---- Storage : demande d'URL de dépôt signée ----
+       Le vrai Storage refuse un POST annonçant application/json sans corps :
+       on reproduit ce refus, sinon le test laisserait passer l'erreur. */
     if (req.method === 'POST' && chemin.startsWith('/storage/v1/object/upload/sign/preuves/')) {
       const cible = chemin.slice('/storage/v1/object/upload/sign/preuves/'.length);
+      const corps = (await lire(req)).toString('utf8');
+      if (String(req.headers['content-type'] || '').includes('application/json') && !corps) {
+        return envoyerJson(res, 400, {
+          message: "Body cannot be empty when content-type is set to 'application/json'"
+        });
+      }
       const jeton = crypto.randomBytes(16).toString('hex');
       jetonsDepot.set(jeton, cible);
       return envoyerJson(res, 200, {
@@ -159,20 +167,20 @@ function demarrerFauxSupabase() {
       return envoyerJson(res, 200, { Key: 'preuves/' + cible });
     }
 
-    /* ---- Storage : lecture (bucket privé) ---- */
-    if (req.method === 'GET' && chemin.startsWith('/storage/v1/object/authenticated/preuves/')) {
-      const cible = chemin.slice('/storage/v1/object/authenticated/preuves/'.length);
+    /* ---- Storage : lecture (bucket privé, en-tête d'autorisation) ---- */
+    if (req.method === 'GET' && chemin.startsWith('/storage/v1/object/preuves/')) {
+      const cible = chemin.slice('/storage/v1/object/preuves/'.length);
       const f = fichiers.get(cible);
       if (!f) return envoyerJson(res, 404, { message: 'not found' });
       res.writeHead(200, { 'Content-Type': f.type, 'Content-Length': f.octets.length });
       return res.end(f.octets);
     }
 
-    /* ---- Storage : suppression ---- */
-    if (req.method === 'DELETE' && chemin.startsWith('/storage/v1/object/preuves/')) {
-      const cible = chemin.slice('/storage/v1/object/preuves/'.length);
-      const existait = fichiers.delete(cible);
-      return envoyerJson(res, existait ? 200 : 404, {});
+    /* ---- Storage : suppression par lot, chemins dans le corps ---- */
+    if (req.method === 'DELETE' && chemin === '/storage/v1/object/preuves') {
+      const { prefixes } = JSON.parse((await lire(req)).toString('utf8') || '{}');
+      const supprimes = (prefixes || []).filter((p) => fichiers.delete(p));
+      return envoyerJson(res, 200, supprimes.map((p) => ({ name: p })));
     }
 
     envoyerJson(res, 404, { message: 'route inconnue du faux Supabase : ' + req.method + ' ' + chemin });
@@ -205,6 +213,7 @@ function adapter(req, res, corpsBrut, url) {
 
 const ROUTES = {
   '/api/catalogue': () => import('../api/catalogue.js'),
+  '/api/diagnostic': () => import('../api/diagnostic.js'),
   '/api/preuve-url': () => import('../api/preuve-url.js'),
   '/api/dossiers': () => import('../api/dossiers.js'),
   '/api/suivi': () => import('../api/suivi.js'),

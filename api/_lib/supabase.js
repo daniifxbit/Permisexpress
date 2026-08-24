@@ -118,7 +118,13 @@ const BUCKET = 'preuves';
 export async function urlTeleversementSignee(chemin) {
   const r = await fetch(
     base() + '/storage/v1/object/upload/sign/' + BUCKET + '/' + chemin,
-    { method: 'POST', headers: entetes({ 'Content-Type': 'application/json' }) }
+    {
+      method: 'POST',
+      headers: entetes({ 'Content-Type': 'application/json' }),
+      // Corps `{}` obligatoire : annoncer application/json sans corps fait
+      // échouer l'analyse côté Storage. Le client officiel envoie bien {}.
+      body: '{}'
+    }
   );
   if (!r.ok) await echec(r, 'urlTeleversementSignee');
   const { url } = await r.json();
@@ -126,11 +132,10 @@ export async function urlTeleversementSignee(chemin) {
 }
 
 export async function telechargerPreuve(chemin) {
-  const r = await fetch(
-    base() + '/storage/v1/object/authenticated/' + BUCKET + '/' + chemin,
-    { headers: entetes() }
-  );
-  if (r.status === 404) return null;
+  const r = await fetch(base() + '/storage/v1/object/' + BUCKET + '/' + chemin, {
+    headers: entetes()
+  });
+  if (r.status === 404 || r.status === 400) return null;
   if (!r.ok) await echec(r, 'telechargerPreuve');
   return {
     octets: Buffer.from(await r.arrayBuffer()),
@@ -139,9 +144,12 @@ export async function telechargerPreuve(chemin) {
 }
 
 export async function supprimerPreuve(chemin) {
-  const r = await fetch(base() + '/storage/v1/object/' + BUCKET + '/' + chemin, {
+  // La suppression se fait par lot sur le bucket, avec la liste des chemins
+  // dans le corps — c'est la forme qu'utilise le client officiel.
+  const r = await fetch(base() + '/storage/v1/object/' + BUCKET, {
     method: 'DELETE',
-    headers: entetes()
+    headers: entetes({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ prefixes: [chemin] })
   });
   // 404 : le fichier n'existe plus, le résultat voulu est déjà atteint.
   if (!r.ok && r.status !== 404) await echec(r, 'supprimerPreuve');
