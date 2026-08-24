@@ -834,6 +834,15 @@
               </div>
               <button type="button" class="copy-btn" data-action="copy" data-copy="bic">Copier</button>
             </div>
+            <!-- Le RIB reprend les mêmes informations que l'IBAN, sous la forme
+                 attendue par certains formulaires bancaires français. -->
+            <div class="bank-row">
+              <div>
+                <p class="bank-row__label">RIB (banque · guichet · compte · clé)</p>
+                <p class="bank-row__value" id="bankRib"></p>
+              </div>
+              <button type="button" class="copy-btn" data-action="copy" data-copy="rib">Copier</button>
+            </div>
             <div class="bank-row">
               <div>
                 <p class="bank-row__label">Référence à indiquer</p>

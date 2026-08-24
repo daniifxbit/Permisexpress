@@ -121,6 +121,28 @@ await page.locator('[data-action="pick-method"][data-method="vir"]').click();
 ok('panneau virement affiché', await page.locator('[data-pay-panel="vir"]').isVisible());
 ok('confirmer désactivé sans preuve', await page.locator('[data-action="confirm"]').isDisabled());
 ok('message preuve obligatoire', (await page.locator('#confirmHint').textContent()).includes('obligatoire'));
+/* Coordonnées bancaires réelles : la clé IBAN doit rester valide, et
+   l'encadré « à compléter » doit avoir disparu. */
+{
+  const iban = (await page.locator('#bankIban').textContent()).replace(/\s+/g, '').toUpperCase();
+  const permute = iban.slice(4) + iban.slice(0, 4);
+  const numerique = permute.replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55));
+  let reste = 0;
+  for (const chiffre of numerique) reste = (reste * 10 + Number(chiffre)) % 97;
+  ok('IBAN affiché : clé valide', reste === 1, 'reste ' + reste);
+  ok('IBAN affiché : longueur française', iban.length === 27);
+  ok('titulaire renseigné',
+    !(await page.locator('#bankHolder').textContent()).includes('à compléter'));
+  ok('RIB affiché cohérent avec l\'IBAN',
+    (await page.locator('#bankRib').textContent()).replace(/\s+/g, '') === iban.slice(4));
+  // On interroge l'attribut `hidden` porté par l'encadré lui-même : son panneau
+  // est masqué à cet instant, donc isHidden() serait vrai dans les deux cas.
+  ok('encadré « à compléter » retiré du virement',
+    await page.locator('#bankTodo').evaluate((n) => n.hidden) === true);
+  ok('encadré « à compléter » conservé pour Western Union',
+    await page.locator('#wuTodo').evaluate((n) => n.hidden) === false);
+}
+
 ok('référence de virement',
   (await page.locator('[data-bind="payRef"]').first().textContent()).trim() === 'PE-DURAND');
 

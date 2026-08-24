@@ -22,12 +22,14 @@
     promoBar: true,
     gallery: false, // passer à true une fois de vraies photos ajoutées
 
-    /* Coordonnées bancaires (virement) — À COMPLÉTER */
+    /* Coordonnées bancaires (virement).
+       Clé IBAN et clé RIB vérifiées ; le RIB correspond bien à l'IBAN. */
     bank: {
-      holder: 'PERMIS EXPRESS (à compléter)',
-      iban: 'FR76 •••• •••• •••• •••• •••• ••• (à compléter)',
-      bic: '•••••••• (à compléter)',
-      complete: false // passer à true une fois les vraies coordonnées saisies
+      holder: 'DIDIER LEON DELABY',
+      iban: 'FR76 1723 8000 0100 4567 8420 305',
+      bic: 'SCSYFRP2',
+      rib: '17238 00001 00456784203 05',
+      complete: true
     },
 
     /* Western Union — À COMPLÉTER */
@@ -1230,8 +1232,11 @@
       var key = btn.getAttribute('data-copy');
       var values = {
         holder: SITE.bank.holder,
-        iban: SITE.bank.iban,
+        // L'IBAN se colle sans espaces : les formulaires bancaires les refusent
+        // souvent, et les banques les ignorent de toute façon.
+        iban: SITE.bank.iban.replace(/\s+/g, ''),
         bic: SITE.bank.bic,
+        rib: SITE.bank.rib,
         ref: payRef()
       };
       copyValue(btn, values[key] || '');
@@ -1342,6 +1347,7 @@
     $('#bankHolder').textContent = SITE.bank.holder;
     $('#bankIban').textContent = SITE.bank.iban;
     $('#bankBic').textContent = SITE.bank.bic;
+    $('#bankRib').textContent = SITE.bank.rib;
     $('#wuName').textContent = SITE.westernUnion.beneficiary;
     $('#wuCity').textContent = SITE.westernUnion.city;
     show($('#bankTodo'), !SITE.bank.complete);
