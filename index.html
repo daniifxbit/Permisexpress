@@ -403,6 +403,34 @@
     </div>
   </section>
 
+  <!-- ===================== Attestation =====================
+       Masquée tant que `assets/attestation.jpg` n'existe pas : app.js n'affiche
+       la section qu'une fois l'image réellement chargée. Déposer le fichier
+       dans assets/ suffit donc à la faire apparaître, sans rien modifier ici. -->
+  <section class="section--band section--alt section--bordered" id="attestation" hidden>
+    <div class="shell attestation">
+      <div class="attestation__copy">
+        <p class="eyebrow">Notre établissement</p>
+        <h2 class="section-title">Attestation d'activité</h2>
+        <p class="section-lead">L'attestation signée par le gérant de l'auto-école Permis Express. Elle porte notre
+          agrément préfectoral, notre numéro SIRET et l'adresse de l'établissement.</p>
+        <ul class="attestation__points">
+          <li>Auto-école Permis Express, gérée par M. Hicham</li>
+          <li>Attestation d'autorisation de début d'activité, du 24 mai 2024</li>
+          <li>Agrément et SIRET vérifiables auprès des services publics</li>
+        </ul>
+        <a class="btn btn-gold btn-md" href="assets/attestation.jpg" target="_blank" rel="noopener">
+          Voir le document en grand
+        </a>
+      </div>
+
+      <a class="attestation__doc" href="assets/attestation.jpg" target="_blank" rel="noopener">
+        <img id="attestationImg" src="assets/attestation.jpg"
+             alt="Attestation d'autorisation de début d'activité de l'auto-école Permis Express, signée par son gérant.">
+      </a>
+    </div>
+  </section>
+
   <!-- ===================== Galerie =====================
        Désactivée par défaut (SITE.gallery = false dans app.js) : les visuels
        réels ne sont pas fournis. Remplacer les blocs .gallery-ph par des <img>

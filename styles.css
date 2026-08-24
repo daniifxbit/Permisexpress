@@ -1375,3 +1375,62 @@ body.a-surcouche .wa-fab { display: none; }
   .wa-fab { transition: none; }
   .wa-fab:hover { transform: none; }
 }
+
+/* --------------------------------------------------------------------------
+   Attestation d'activité
+   -------------------------------------------------------------------------- */
+
+.attestation {
+  display: grid;
+  grid-template-columns: 1fr minmax(240px, 340px);
+  gap: 48px;
+  align-items: center;
+}
+.attestation__copy .section-lead { margin-bottom: 22px; }
+
+.attestation__points {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 28px;
+  display: grid;
+  gap: 10px;
+}
+.attestation__points li {
+  position: relative;
+  padding-left: 26px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.attestation__points li::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  color: var(--gold-deep);
+  font-weight: 800;
+}
+
+.attestation__doc {
+  display: block;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: 0 10px 30px -18px rgba(18, 20, 28, .5);
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.attestation__doc:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 18px 40px -20px rgba(18, 20, 28, .55);
+}
+.attestation__doc img { display: block; width: 100%; height: auto; }
+
+@media (max-width: 860px) {
+  .attestation { grid-template-columns: 1fr; gap: 32px; }
+  .attestation__doc { max-width: 340px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attestation__doc { transition: none; }
+  .attestation__doc:hover { transform: none; }
+}

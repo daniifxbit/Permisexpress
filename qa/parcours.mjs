@@ -45,10 +45,14 @@ const navigateur = await chromium.launch(
 const contexte = await navigateur.newContext({ viewport: { width: 1280, height: 900 }, locale: 'fr-FR' });
 const page = await contexte.newPage();
 
-/* Deux appels échouent volontairement pendant les tests (mauvaise adresse
+/* Certains appels échouent volontairement pendant les tests (mauvaise adresse
    e-mail, mauvais code d'accès) : le navigateur les journalise comme erreurs
-   alors que la page les gère correctement. On les distingue des vraies. */
-const ECHECS_ATTENDUS = ['/api/suivi', '/api/admin/login', '/api/admin/parametres'];
+   alors que la page les gère correctement. On les distingue des vraies.
+
+   S'y ajoute le document d'attestation, qui n'est pas versionné : l'exploitant
+   le dépose dans assets/. Retirer cette entrée le jour où le fichier y est. */
+const ECHECS_ATTENDUS = ['/api/suivi', '/api/admin/login', '/api/admin/parametres',
+  '/assets/attestation.jpg'];
 
 const erreurs = [];
 const ressourcesEnEchec = [];
@@ -124,6 +128,8 @@ ok('8 cartes tarifs', (await page.locator('#tarifsGrid .card-tarif').count()) ==
 ok('6 avis', (await page.locator('.card-review').count()) === 6);
 ok('6 questions FAQ', (await page.locator('.faq-item').count()) === 6);
 ok('galerie masquée', await page.locator('#galerie').isHidden());
+ok('attestation masquée tant que le document manque',
+  await page.locator('#attestation').isHidden());
 ok('section suivi visible', await page.locator('#suivi').isVisible());
 ok('prix Permis B = 800 €',
   (await page.locator('.card-tarif[data-permit="B"] .card-tarif__price').textContent()).trim() === '800 €');
@@ -718,6 +724,24 @@ await page.locator('[data-action="admin-close"]').click();
   ok('catalogue injoignable : message de repli',
     (await horsLigne.locator('#bankNotice').textContent()).length > 0);
   await horsLigne.close();
+}
+
+/* ---------- 17. Attestation : la section suit la présence du document ----------
+   Le fichier n'est pas dans le dépôt (l'exploitant le dépose lui-même). On
+   vérifie les deux états : absent → section masquée, présent → section visible. */
+{
+  const avec = await contexte.newPage();
+  await avec.route('**/assets/attestation.jpg', (route) =>
+    route.fulfill({ contentType: 'image/png', body: PNG }));
+  await avec.goto(BASE + '/', { waitUntil: 'networkidle' });
+
+  ok('attestation : section affichée quand le document existe',
+    await avec.locator('#attestation').isVisible());
+  ok('attestation : le document est cliquable',
+    await avec.locator('.attestation__doc').getAttribute('href') === 'assets/attestation.jpg');
+  ok('attestation : image décrite pour les lecteurs d\'écran',
+    ((await avec.locator('#attestationImg').getAttribute('alt')) || '').length > 20);
+  await avec.close();
 }
 
 ok('aucune erreur JavaScript', erreurs.length === 0, erreurs.join(' | '));

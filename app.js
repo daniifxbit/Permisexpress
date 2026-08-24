@@ -1654,11 +1654,27 @@
       + 'administrateur, onglet Réglages.');
   }
 
+  /* La section « Attestation » ne s'affiche que si le document existe vraiment
+     dans assets/. Déposer le fichier suffit à la faire apparaître ; tant qu'il
+     manque, la page d'accueil ne montre ni cadre vide ni image cassée. */
+  function afficherAttestation() {
+    var section = $('#attestation');
+    var img = $('#attestationImg');
+    if (!section || !img) return;
+
+    if (img.complete) {
+      if (img.naturalWidth) show(section, true);
+      return;
+    }
+    img.addEventListener('load', function () { show(section, true); });
+  }
+
   function init() {
     collectRefs();
 
     show(refs.promoBar, SITE.promoBar);
     show(refs.gallery, SITE.gallery);
+    afficherAttestation();
 
     afficherCoordonneesBancaires();
 

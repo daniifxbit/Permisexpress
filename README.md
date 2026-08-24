@@ -10,10 +10,11 @@ administrateur est protégé par une authentification serveur.
 ## Ce que fait le site
 
 **Vitrine** — héro, « Pourquoi nous », tarifs (8 catégories), notre méthode,
-« Comment ça marche ? » (volet déroulant), suivi de dossier, avis clients, FAQ,
-pied de page. Un **bouton WhatsApp flottant** ouvre une conversation avec le
-numéro de l'agence ; c'est un lien simple, qui fonctionne même si `app.js` ne
-se charge pas, et il s'efface pendant que le parcours d'inscription est ouvert.
+« Comment ça marche ? » (volet déroulant), attestation d'activité, suivi de
+dossier, avis clients, FAQ, pied de page. Un **bouton WhatsApp flottant** ouvre
+une conversation avec le numéro de l'agence ; c'est un lien simple, qui
+fonctionne même si `app.js` ne se charge pas, et il s'efface pendant que le
+parcours d'inscription est ouvert.
 
 **Parcours d'inscription intégré**, en surcouche plein écran :
 
@@ -202,6 +203,21 @@ modifie dans l'onglet **Réglages**, à côté des coordonnées. Elle est identi
 pour tous : le rapprochement d'un virement avec un dossier repose sur la preuve
 de paiement jointe, pas sur le libellé bancaire.
 
+### Attestation d'activité
+
+La section `#attestation` affiche le document de l'auto-école. Elle n'apparaît
+que si **`assets/attestation.jpg`** existe : `app.js` attend que l'image se
+charge vraiment avant de la révéler, donc une page sans document ne montre ni
+cadre vide ni image cassée. Déposer le fichier suffit — rien d'autre à modifier.
+
+Depuis GitHub, sans rien installer : ouvrir le dossier `assets`, **Add file →
+Upload files**, déposer l'image nommée exactement `attestation.jpg`, puis
+**Commit changes**. Vercel redéploie tout seul.
+
+> `qa/parcours.mjs` liste `/assets/attestation.jpg` parmi les échecs de
+> chargement attendus, puisque le fichier n'est pas versionné. Retirer cette
+> entrée le jour où il l'est.
+
 ### Numéro WhatsApp
 
 Il apparaît à trois endroits d'`index.html`, sous la forme
@@ -294,7 +310,7 @@ d'essai des tests (ci-dessous) ou `vercel dev`.
 `qa/parcours.mjs` démarre `qa/serveur-test.mjs` — le site, les **vraies**
 fonctions serverless, et un faux Supabase qui rejoue la portion de son API REST
 que le code utilise — puis déroule le parcours complet dans un navigateur :
-208 assertions couvrant la vitrine, le bouton WhatsApp, la validation, la photo d'identité et le
+212 assertions couvrant la vitrine, le bouton WhatsApp, l'attestation, la validation, la photo d'identité et le
 NEPH, le virement, la preuve obligatoire, l'espace administrateur, l'onglet
 Réglages, le suivi, le renvoi de preuve, les contrôles d'accès de l'API,
 l'accessibilité clavier, le rendu mobile/tablette/bureau, le repli sur un IBAN
