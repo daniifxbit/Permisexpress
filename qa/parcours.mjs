@@ -46,6 +46,13 @@ page.on('response', (r) => {
   ressourcesEnEchec.push(r.status() + ' ' + chemin);
 });
 
+/* La liste admin s'affiche en deux temps : « Chargement… », puis les dossiers.
+   On attend la fin du chargement avant toute vérification de contenu. */
+const listeAdminPrete = () => page.waitForFunction(() => {
+  const vide = document.querySelector('#adminEmpty');
+  return vide && !vide.textContent.includes('Chargement');
+});
+
 await page.goto(BASE + '/', { waitUntil: 'networkidle' });
 
 /* ---------- 1. Page vitrine ---------- */
@@ -187,6 +194,7 @@ ok('liste toujours masquée', await page.locator('#adminBody').isHidden());
 await page.fill('#adminPass', banc.codeAdmin);
 await page.locator('[data-action="admin-login"]').click();
 await page.waitForSelector('#adminBody:not([hidden])');
+await listeAdminPrete();
 ok('admin déverrouillé', await page.locator('#adminBody').isVisible());
 ok('portail de connexion masqué', await page.locator('#adminGate').isHidden());
 ok('1 dossier listé', (await page.locator('.admin-card').count()) === 1);
@@ -217,7 +225,7 @@ await page.waitForFunction(() => document.querySelector('#adminEmpty') && !docum
 ok('filtre En attente vide', await page.locator('#adminEmpty').isVisible());
 ok('compteur rejetées = 1', (await page.locator('[data-filter="rejected"]').textContent()).includes('(1)'));
 await page.locator('[data-filter="all"]').click();
-await page.waitForSelector('.admin-card');
+await listeAdminPrete();
 await page.locator('[data-action="admin-close"]').click();
 
 /* ---------- 7. Renvoi d'une preuve ---------- */
@@ -252,7 +260,7 @@ ok('ancienne preuve purgée du stockage', banc.fichiers.size === 1);
 
 await page.locator('.overlay__close[data-action="funnel-close"]').click();
 await page.locator('[data-action="admin"]').click();
-await page.waitForSelector('.admin-card');
+await listeAdminPrete();
 ok('décision de nouveau possible', (await page.locator('.btn-approve').count()) === 1);
 ok('champ message vidé', (await page.inputValue('.admin-decide textarea')) === '');
 ok('aperçu image', (await page.locator('.admin-proof__view img').count()) === 1);
@@ -269,6 +277,7 @@ ok('statut validé en base', banc.dossiers[0].statut === 'approved');
 await page.locator('[data-action="admin-close"]').click();
 await page.locator('[data-action="admin"]').click();
 await page.waitForSelector('#adminBody:not([hidden])');
+await listeAdminPrete();
 ok('session admin conservée', await page.locator('#adminBody').isVisible());
 await page.locator('[data-action="admin-close"]').click();
 
