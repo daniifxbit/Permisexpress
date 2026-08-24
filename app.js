@@ -37,20 +37,23 @@
       phone: '+33 6 76 32 61 99'
     },
 
-    /* Mentions légales de la facture — À COMPLÉTER.
-       SIRET et numéro de TVA portent chacun une clé de contrôle, vérifiée au
-       chargement : tant qu'ils ne sont pas valides, la facture n'affiche aucun
-       identifiant et conserve la mention « à compléter ». Une facture ne peut
-       donc pas partir avec un numéro inexact.
+    /* Référence que le client indique sur son virement. Elle est la même pour
+       tous : le rapprochement d'un virement avec un dossier se fait par la
+       preuve de paiement jointe, pas par le libellé bancaire. */
+    referenceVirement: 'PE-Paiement complet service',
 
-       Les valeurs communiquées le 24/08/2026 — SIRET 812 345 678 00019,
-       TVA FR 32 812345678, 12 rue de la Paix 75002 Paris — ne passent pas ce
-       contrôle (clé de Luhn fausse ; clé TVA attendue 25). Elles n'ont donc
-       pas été retenues. */
+    /* Coordonnées de l'émetteur, imprimées sur la facture.
+
+       SIRET et TVA sont laissés vides à la demande de l'exploitant, ces
+       informations étant communiquées au client par ailleurs. Le support reste
+       en place : renseigner l'un ou l'autre le fait apparaître sur la facture,
+       à condition qu'il soit valide — chacun porte une clé de contrôle,
+       vérifiée au chargement, pour qu'aucun identifiant inexact ne puisse être
+       imprimé. Voir README.md § « Mentions de la facture ». */
     company: {
+      adresse: '2 All. Adrienne Lecouvreur, 75007 Paris, France',
       siret: '',
-      tva: '',
-      adresse: ''
+      tva: ''
     }
 
     /* Le code d'accès administrateur n'est plus ici : il est vérifié par
@@ -219,15 +222,21 @@
     return n.slice(2, 4) === attendue;
   }
 
-  /* Les mentions ne sont imprimées que si tout est cohérent : un identifiant
-     inexact sur une facture vaut mieux absent que faux. */
+  /* Chaque identifiant est facultatif, mais n'est imprimé que s'il est
+     valide : sur une facture, un numéro inexact est pire qu'absent. */
   function mentionsLegales() {
     var c = SITE.company;
-    if (!c.adresse || !siretValide(c.siret) || !tvaValide(c.tva, c.siret)) return null;
-    return {
-      adresse: c.adresse,
-      ligne: 'SIRET ' + c.siret + ' · TVA ' + c.tva + ' · ' + c.adresse
-    };
+    var identifiants = [];
+    if (siretValide(c.siret)) identifiants.push('SIRET ' + c.siret);
+    if (tvaValide(c.tva, c.siret)) identifiants.push('TVA ' + c.tva);
+    return { adresse: c.adresse || '', ligne: identifiants.join(' · ') };
+  }
+
+  /* Un identifiant saisi mais refusé doit se voir : sans cela, il
+     disparaîtrait de la facture sans que personne le remarque. */
+  function identifiantsRefuses() {
+    var c = SITE.company;
+    return (c.siret && !siretValide(c.siret)) || (c.tva && !tvaValide(c.tva, c.siret));
   }
 
   function permitById(id) {
@@ -270,8 +279,7 @@
   }
 
   function payRef() {
-    var initials = form.nom ? form.nom.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 6) : '';
-    return 'PE-' + (initials || 'DOSSIER');
+    return SITE.referenceVirement;
   }
 
   /* ========================================================================
@@ -1127,7 +1135,7 @@
       '<div><h1>Permis <span style="color:#B8880E">Express</span></h1>' +
       '<div style="color:#8B90A0;font-size:12px">Votre permis, notre priorité</div>' +
       '<div style="margin-top:10px;font-size:12px;color:#5A5F6E">' + esc(SITE.contact.phone) + '<br>' +
-      esc(mentions ? mentions.adresse : 'Coordonnées société à compléter') + '</div></div>' +
+      esc(mentions.adresse || 'Coordonnées société à compléter') + '</div></div>' +
       '<div style="text-align:right"><div style="font-size:18px;font-weight:700">FACTURE</div>' +
       '<div style="font-family:monospace;margin-top:6px">' + esc(invoiceNo) + '</div>' +
       '<div style="color:#8B90A0">' + esc(frJour(state.dossierDate)) + '</div>' +
@@ -1156,9 +1164,9 @@
       row('Statut', payStatusLabel()) +
       '</table><div style="margin-top:12px;font-size:12px;color:#5A5F6E">Ce document confirme l\'enregistrement de votre commande. ' +
       'Il ne vaut pas quittance : le paiement sera vérifié par notre équipe, qui vous adressera la confirmation définitive.</div></div>' +
-      '<div style="font-size:11px;color:#8B90A0;margin-top:20px">' +
-      esc(mentions ? mentions.ligne
-        : 'Mentions légales et informations société à compléter (SIRET, TVA, adresse).') + '</div>' +
+      (mentions.ligne
+        ? '<div style="font-size:11px;color:#8B90A0;margin-top:20px">' + esc(mentions.ligne) + '</div>'
+        : '') +
       '</body></html>';
   }
 
@@ -1394,9 +1402,9 @@
     show($('#bankTodo'), !SITE.bank.complete);
 
     // Signale une saisie invalide plutôt que de la laisser disparaître en silence.
-    if ((SITE.company.siret || SITE.company.tva) && !mentionsLegales()) {
-      console.warn('[Permis Express] SIRET ou numéro de TVA invalide : les mentions '
-        + 'légales ne seront pas imprimées sur les factures.');
+    if (identifiantsRefuses()) {
+      console.warn('[Permis Express] SIRET ou numéro de TVA invalide : il ne sera pas '
+        + 'imprimé sur les factures.');
     }
 
     fillForm();

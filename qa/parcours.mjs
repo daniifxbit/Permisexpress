@@ -147,8 +147,9 @@ ok('message preuve obligatoire', (await page.locator('#confirmHint').textContent
     (await page.locator('[data-pay-panel]').count()) === 1);
 }
 
-ok('référence de virement',
-  (await page.locator('[data-bind="payRef"]').first().textContent()).trim() === 'PE-DURAND');
+ok('référence de virement fixe',
+  (await page.locator('[data-bind="payRef"]').first().textContent()).trim()
+    === 'PE-Paiement complet service');
 
 await page.locator('[data-pay-panel="vir"] .declare-btn').click();
 ok('virement déclaré', (await page.locator('[data-pay-panel="vir"] .declare-btn').textContent()).includes('déclaré'));
@@ -182,6 +183,21 @@ ok('montant calculé par le serveur', banc.dossiers[0]?.montant === 650);
 ok('moyen enregistré = virement bancaire', banc.dossiers[0]?.moyen_id === 'vir');
 ok('aucune référence de transfert enregistrée', !banc.dossiers[0]?.reference_wu);
 ok('preuve déposée dans le stockage', banc.fichiers.size === 1);
+/* La facture s'imprime via un iframe caché : son srcdoc est renseigné avant
+   insertion, donc lisible dès que l'élément apparaît. */
+await page.locator('[data-action="invoice"]').click();
+const facture = await (await page.waitForFunction(() => {
+  const f = document.getElementById('pe-invoice-frame');
+  return f && f.srcdoc ? f.srcdoc : null;
+})).jsonValue();
+ok('facture générée', typeof facture === 'string' && facture.includes('FACTURE'));
+ok('facture : numéro FA-', facture.includes(dossier.replace('PE-', 'FA-')));
+ok('facture : montant', facture.includes('650 €'));
+ok('facture : adresse de l\'émetteur', facture.includes('Adrienne Lecouvreur'));
+ok('facture : aucun SIRET', !facture.includes('SIRET'));
+ok('facture : aucun numéro de TVA', !/TVA/.test(facture));
+ok('facture : plus de mention « à compléter »', !facture.includes('à compléter'));
+
 ok('rien n\'est écrit dans le navigateur',
   (await page.evaluate(() => JSON.stringify(Object.keys(localStorage)))) === '[]');
 

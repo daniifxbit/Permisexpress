@@ -138,10 +138,33 @@ En haut de `app.js`, dans l'objet `SITE` :
 | Élément | Clé | Statut |
 |---|---|---|
 | Coordonnées bancaires (titulaire, IBAN, BIC) | `SITE.bank` | **à fournir** |
-| Mentions société sur la facture (SIRET, TVA, adresse) | `SITE.invoiceLegal` | **à fournir** |
 
 Les coordonnées bancaires sont renseignées et `SITE.bank.complete` vaut `true`,
 ce qui retire l'encadré orange « à compléter » du panneau de virement.
+
+### Mentions de la facture
+
+`SITE.company` porte l'adresse imprimée sur la facture. `siret` et `tva` sont
+volontairement vides : l'exploitant communique ces informations au client par
+un autre canal. Le support reste en place — renseigner l'un ou l'autre le fait
+apparaître au bas de la facture.
+
+Chacun porte une clé de contrôle, vérifiée au chargement : clé de Luhn pour le
+SIRET, sur le SIREN comme sur les quatorze chiffres, et pour la TVA
+`(12 + 3 × (SIREN mod 97)) mod 97`, qui doit aussi correspondre au SIREN du
+SIRET. Un identifiant invalide n'est jamais imprimé — il est écarté, et un
+avertissement part en console. Une facture ne peut donc pas porter un numéro
+inexact.
+
+> À noter : en France, une facture doit légalement mentionner le numéro SIREN
+> ou SIRET de l'émetteur, et le numéro de TVA intracommunautaire dès lors que
+> l'entreprise y est assujettie. Les laisser vides est un choix de l'exploitant.
+
+### Référence de virement
+
+`SITE.referenceVirement` est le libellé que le client reporte sur son virement.
+Il est identique pour tous : le rapprochement d'un virement avec un dossier
+repose sur la preuve de paiement jointe, pas sur le libellé bancaire.
 
 Également dans `index.html` : remplacer `https://exemple.fr` par le domaine
 réel dans les balises `canonical`, `og:url` et `og:image`.
