@@ -3,7 +3,11 @@
    Parcours : permis → informations → récapitulatif → paiement → confirmation,
    plus le suivi de dossier client et l'espace administrateur.
 
-   Aucune dépendance, aucune étape de build : le fichier est chargé tel quel.
+   Les dossiers et les preuves de paiement vivent côté serveur (voir api/).
+   Cette page ne conserve aucune donnée client : rien n'est écrit dans le
+   navigateur, et le code d'accès administrateur n'apparaît nulle part ici.
+
+   Aucune dépendance, aucune étape de build.
    ========================================================================== */
 
 (function () {
@@ -40,54 +44,63 @@
     },
 
     /* Facture : mentions légales — À COMPLÉTER (SIRET, TVA, adresse) */
-    invoiceLegal: 'Mentions légales et informations société à compléter (SIRET, TVA, adresse).',
+    invoiceLegal: 'Mentions légales et informations société à compléter (SIRET, TVA, adresse).'
 
-    /* ATTENTION — code d'accès administrateur.
-       Il est lisible par quiconque ouvre le code source de la page. C'est une
-       protection de façade, acceptable pour une démonstration uniquement.
-       Pour un usage réel, déplacer les dossiers et cette vérification côté
-       serveur (voir README.md § « Limites connues »). */
-    adminCode: '#Capaciteur200K#'
+    /* Le code d'accès administrateur n'est plus ici : il est vérifié par
+       /api/admin/login, à partir de son empreinte scrypt stockée en variable
+       d'environnement. Voir README.md § « Espace administrateur ». */
   };
 
-  /* Point d'intégration Wero : lorsque l'API/le lien officiel sera disponible,
-     l'appeler ici et renvoyer une promesse. Tant que ce n'est pas branché, le
-     site ne prétend jamais qu'une transaction a eu lieu. */
-  function startWeroPayment(/* dossier, montant */) {
-    return Promise.reject(new Error('Wero non raccordé'));
-  }
+  var TAILLE_PREUVE_MAX = 10 * 1024 * 1024; // 10 Mo, aligné sur l'API
 
   /* ========================================================================
      2. CATALOGUE
-     Source de vérité des prix pour le parcours, le récapitulatif et la
-     facture. La section Tarifs de index.html les répète en HTML statique
-     (pour le référencement) : checkCatalogue() signale toute divergence.
+     Chargé depuis /api/catalogue, qui fait foi pour les prix. Si l'appel
+     échoue, on retombe sur les tarifs présents en HTML dans la page : le
+     parcours reste utilisable même API indisponible.
      ======================================================================== */
 
-  var PERMITS = [
-    { id: 'B',    cat: 'Voiture',     name: 'Permis B',          desc: 'Le permis voiture classique.',            price: 800 },
-    { id: 'FULL', cat: 'Voiture',     name: 'Permis complet',    desc: 'Code de la route + permis B, tout inclus.', price: 1000 },
-    { id: 'A1',   cat: 'Moto',        name: 'Permis A1',         desc: 'Motos légères jusqu\'à 125 cm³.',         price: 500 },
-    { id: 'A2',   cat: 'Moto',        name: 'Permis A2',         desc: 'Motos de puissance intermédiaire.',       price: 650 },
-    { id: 'C',    cat: 'Poids lourd', name: 'Permis C',          desc: 'Véhicules de transport de marchandises.', price: 1300 },
-    { id: 'D',    cat: 'Transport',   name: 'Permis D',          desc: 'Transport de personnes (bus, autocar).',  price: 2000 },
-    { id: 'BE',   cat: 'Remorque',    name: 'Permis BE',         desc: 'Voiture avec remorque lourde.',           price: 500 },
-    { id: 'CODE', cat: 'Théorie',     name: 'Code de la route',  desc: 'Préparation et passage du code seul.',    price: 250 }
-  ];
+  var PERMITS = [];
+  var METHODS = [];
 
-  var METHODS = [
-    { id: 'vir',  name: 'Virement bancaire' },
-    { id: 'wero', name: 'Wero' },
-    { id: 'wu',   name: 'Western Union' }
-  ];
+  function catalogueDepuisDom() {
+    return $$('#tarifsGrid .card-tarif[data-permit]').map(function (carte) {
+      return {
+        id: carte.getAttribute('data-permit'),
+        cat: (($('.card-tarif__cat', carte) || {}).textContent || '').trim(),
+        name: (($('.card-tarif__name', carte) || {}).textContent || '').trim(),
+        desc: (($('.card-tarif__desc', carte) || {}).textContent || '').trim(),
+        price: Number(carte.getAttribute('data-price')) || 0
+      };
+    });
+  }
+
+  function moyensDepuisDom() {
+    return $$('[data-action="pick-method"]').map(function (btn) {
+      return {
+        id: btn.getAttribute('data-method'),
+        name: (($('.pick__name', btn) || {}).textContent || '').trim()
+      };
+    });
+  }
+
+  function chargerCatalogue() {
+    return api('/api/catalogue', { method: 'GET' }).then(function (d) {
+      PERMITS = d.permis.map(function (p) {
+        return { id: p.id, cat: p.cat, name: p.nom, desc: p.desc, price: p.prix };
+      });
+      METHODS = d.moyens.map(function (m) { return { id: m.id, name: m.nom }; });
+    }).catch(function () {
+      PERMITS = catalogueDepuisDom();
+      METHODS = moyensDepuisDom();
+    });
+  }
 
   var STATUS = {
     pending:  { label: 'En attente de vérification', cls: 'pending' },
     approved: { label: 'Paiement validé',            cls: 'approved' },
     rejected: { label: 'Preuve rejetée',             cls: 'rejected' }
   };
-
-  var STORE_KEY = 'pe_dossiers_v1';
 
   /* ========================================================================
      3. ÉTAT
@@ -98,14 +111,23 @@
     permit: null,          // id de PERMITS
     method: null,          // id de METHODS
     declared: false,       // le client a déclaré avoir effectué le paiement
-    proof: { name: '', data: '', type: '' },
+    proof: { file: null, name: '' },
     wuRef: '',
+    envoiEnCours: false,
+
+    // Renseignés par le serveur à la confirmation
     dossier: '',
-    invoiceDate: '',
+    dossierDate: '',
+    dossierMontant: null,
+    dossierEmail: '',      // sert à authentifier un renvoi de preuve
+
+    // Administration
     records: [],
+    totaux: { all: 0, pending: 0, approved: 0, rejected: 0 },
     adminAuth: false,
     adminFilter: 'all',
-    adminMsg: {},          // dossier -> message en cours de saisie
+    adminMsg: {},          // numéro -> message en cours de saisie
+
     trackFound: null
   };
 
@@ -139,16 +161,25 @@
 
   function euros(n) { return n + ' €'; }
 
-  function nowDateTime() { return new Date().toLocaleString('fr-FR'); }
-
   /* « 1995-11-03 » (valeur d'un input[type=date]) → « 03/11/1995 ». */
   function frDate(iso) {
     var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
     return m ? m[3] + '/' + m[2] + '/' + m[1] : (iso || '');
   }
 
-  function nowDate() {
-    return new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+  /* Horodatage ISO renvoyé par l'API → date lisible. */
+  function frJour(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d)) return String(iso);
+    return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+  }
+
+  function frDateHeure(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d)) return String(iso);
+    return d.toLocaleString('fr-FR');
   }
 
   function permitById(id) {
@@ -174,6 +205,14 @@
   function currentPermit() { return permitById(state.permit); }
   function currentMethod() { return methodById(state.method); }
 
+  /* Montant affiché : celui du serveur une fois le dossier enregistré,
+     celui du catalogue avant. */
+  function montant() {
+    if (state.dossierMontant != null) return state.dossierMontant;
+    var p = currentPermit();
+    return p ? p.price : null;
+  }
+
   /* Les trois états que le site distingue explicitement. Aucun n'affirme
      qu'une transaction a été encaissée : la vérification reste manuelle. */
   function payStatusLabel() {
@@ -188,65 +227,30 @@
   }
 
   /* ========================================================================
-     5. Stockage des dossiers
-     Limite connue : localStorage est propre au navigateur du visiteur.
-     Un véritable back-office demande une base et une API côté serveur.
+     5. Client API
      ======================================================================== */
 
-  function readStore() {
-    try {
-      var raw = localStorage.getItem(STORE_KEY);
-      var parsed = raw ? JSON.parse(raw) : null;
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (e) {
-      return [];
-    }
-  }
-
-  function saveRecords(records) {
-    state.records = records;
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(records));
-    } catch (e) {
-      // Quota dépassé : on conserve les dossiers sans les fichiers de preuve,
-      // qui restent disponibles en mémoire pour la session en cours.
-      try {
-        localStorage.setItem(STORE_KEY, JSON.stringify(records.map(function (r) {
-          var copy = Object.assign({}, r);
-          copy.proofData = '';
-          copy.proofTruncated = true;
-          return copy;
-        })));
-      } catch (e2) { /* rien de plus à tenter */ }
-    }
-  }
-
-  /* Relit le stockage et réinjecte les preuves gardées en mémoire. */
-  function syncRecords() {
-    var stored = readStore();
-    var live = state.records;
-    var merged = stored.map(function (r) {
-      if (r.proofData) return r;
-      for (var i = 0; i < live.length; i++) {
-        if (live[i].dossier === r.dossier && live[i].proofData) {
-          return Object.assign({}, r, { proofData: live[i].proofData, proofType: live[i].proofType });
-        }
-      }
-      return r;
+  function api(chemin, options) {
+    var opts = Object.assign({ credentials: 'same-origin' }, options || {});
+    opts.headers = Object.assign(
+      opts.body ? { 'Content-Type': 'application/json' } : {},
+      opts.headers || {}
+    );
+    return fetch(chemin, opts).then(function (r) {
+      return r.text().then(function (brut) {
+        var donnees = null;
+        try { donnees = brut ? JSON.parse(brut) : null; } catch (e) { /* réponse non JSON */ }
+        if (r.ok) return donnees;
+        var erreur = new Error(
+          (donnees && donnees.erreur) || 'Le service est momentanément indisponible. Réessayez dans un instant.'
+        );
+        erreur.statut = r.status;
+        erreur.donnees = donnees;
+        throw erreur;
+      });
+    }, function () {
+      throw new Error('Connexion impossible. Vérifiez votre connexion internet et réessayez.');
     });
-    live.forEach(function (r) {
-      var known = merged.some(function (x) { return x.dossier === r.dossier; });
-      if (!known) merged.push(r);
-    });
-    state.records = merged;
-    return merged;
-  }
-
-  function findRecord(dossier) {
-    for (var i = 0; i < state.records.length; i++) {
-      if (state.records[i].dossier === dossier) return state.records[i];
-    }
-    return null;
   }
 
   /* ========================================================================
@@ -286,6 +290,7 @@
 
     if (e.key === 'Escape') {
       e.preventDefault();
+      if (state.envoiEnCours) return;      // ne pas interrompre un envoi
       if (top === refs.funnel) closeFunnel();
       else if (top === refs.admin) closeAdmin();
       else if (top === refs.track) closeOverlay(refs.track);
@@ -327,6 +332,7 @@
 
     refs.track = $('#trackOverlay');
     refs.trackInput = $('#trackInput');
+    refs.trackEmail = $('#trackEmail');
     refs.trackError = $('#trackError');
     refs.trackResult = $('#trackResult');
 
@@ -335,6 +341,7 @@
     refs.adminBody = $('#adminBody');
     refs.adminPass = $('#adminPass');
     refs.adminError = $('#adminError');
+    refs.adminListError = $('#adminListError');
     refs.adminList = $('#adminList');
     refs.adminEmpty = $('#adminEmpty');
     refs.adminCount = $('#adminCount');
@@ -353,6 +360,7 @@
   };
 
   function buildPermitGrid() {
+    refs.permitGrid.textContent = '';
     PERMITS.forEach(function (p) {
       var btn = el('button', 'pick');
       btn.type = 'button';
@@ -376,6 +384,7 @@
   function renderFunnel() {
     var permit = currentPermit();
     var method = currentMethod();
+    var m = montant();
 
     // Fil des étapes
     refs.funnelSteps.forEach(function (li) {
@@ -400,20 +409,20 @@
     });
 
     // Valeurs partagées
-    setBind('permitName', permit ? permit.name : '—');
-    setBind('montant', permit ? euros(permit.price) : '—');
+    setBind('permitName', permit ? permit.name : (state.trackFound ? state.trackFound.permis : '—'));
+    setBind('montant', m != null ? euros(m) : '—');
     setBind('rPrenom', form.prenom || '—');
     setBind('rNom', form.nom || '—');
     setBind('rVille', form.ville || '—');
     setBind('rAdresse', form.adresse || '—');
     setBind('rTel', form.tel || '—');
-    setBind('rEmail', form.email || '—');
+    setBind('rEmail', form.email || state.dossierEmail || '—');
     setBind('payRef', payRef());
     setBind('payMethodName', method ? method.name : '—');
     setBind('payStatusLabel', payStatusLabel());
     setBind('dossier', state.dossier || '—');
     setBind('invoiceNo', state.dossier ? state.dossier.replace('PE-', 'FA-') : '—');
-    setBind('invoiceDate', state.invoiceDate || '—');
+    setBind('invoiceDate', state.dossierDate ? frJour(state.dossierDate) : '—');
 
     renderPayment();
   }
@@ -444,8 +453,21 @@
     });
 
     show(refs.confirmWrap, !!method);
-    refs.confirmBtn.disabled = !state.proof.name;
-    refs.confirmHint.textContent = state.proof.name ? '' : 'Une preuve de paiement est obligatoire pour confirmer.';
+    refs.confirmBtn.disabled = !state.proof.name || state.envoiEnCours;
+    refs.confirmBtn.textContent = state.envoiEnCours ? 'Envoi en cours…' : 'Confirmer ma demande →';
+
+    if (!state.envoiEnCours && !refs.confirmHint.dataset.erreur) {
+      refs.confirmHint.classList.remove('confirm-hint--info');
+      refs.confirmHint.textContent = state.proof.name
+        ? '' : 'Une preuve de paiement est obligatoire pour confirmer.';
+    }
+  }
+
+  function indication(texte, estErreur) {
+    refs.confirmHint.textContent = texte;
+    refs.confirmHint.classList.toggle('confirm-hint--info', !estErreur);
+    if (estErreur) refs.confirmHint.dataset.erreur = '1';
+    else delete refs.confirmHint.dataset.erreur;
   }
 
   function declareLabel(panel, initiated) {
@@ -499,6 +521,10 @@
     return errors;
   }
 
+  /* Les clés renvoyées par l'API portent les noms de la base ; on les
+     rapproche des identifiants de champ de la page. */
+  var CHAMPS_API = { telephone: 'tel' };
+
   function showFormErrors(errors) {
     var keys = ['prenom', 'nom', 'naissance', 'tel', 'email', 'ville', 'adresse', 'pays'];
     keys.forEach(function (key) {
@@ -535,91 +561,104 @@
   /* --- Preuve de paiement --------------------------------------------- */
 
   function resetProof() {
-    state.proof = { name: '', data: '', type: '' };
+    state.proof = { file: null, name: '' };
     $$('[data-proof-input]').forEach(function (input) { input.value = ''; });
   }
 
   function onProofChange(input) {
     var file = input.files && input.files[0];
     if (!file) return;
-    state.proof.name = file.name;
-    state.proof.type = file.type;
-    var reader = new FileReader();
-    reader.onload = function () {
-      state.proof.data = String(reader.result || '');
-    };
-    reader.readAsDataURL(file);
+    if (file.size > TAILLE_PREUVE_MAX) {
+      resetProof();
+      renderFunnel();
+      indication('Fichier trop volumineux : 10 Mo maximum.', true);
+      return;
+    }
+    state.proof = { file: file, name: file.name };
+    indication('', false);
     renderFunnel();
   }
 
   /* --- Confirmation ---------------------------------------------------- */
 
   function confirmRequest() {
-    if (!state.proof.name) return;
+    if (!state.proof.file || state.envoiEnCours) return;
 
     var permit = currentPermit();
     var method = currentMethod();
-    var id = state.dossier || ('PE-' + new Date().getFullYear() + '-' + String(Math.floor(1000 + Math.random() * 9000)));
-    var date = state.invoiceDate || nowDate();
+    if (!method) return;
 
-    syncRecords();
-    var existing = findRecord(id);
+    state.envoiEnCours = true;
+    indication('Envoi de votre preuve de paiement…', false);
+    renderPayment();
 
-    if (existing) {
-      // Renvoi d'une preuve : le dossier repasse en attente, la décision
-      // précédente est archivée.
-      saveRecords(state.records.map(function (r) {
-        if (r.dossier !== id) return r;
-        var history = (r.history || []).slice();
-        if (r.decidedAt) history.push({ status: r.status, note: r.note, at: r.decidedAt });
-        return Object.assign({}, r, {
-          proofName: state.proof.name,
-          proofData: state.proof.data,
-          proofType: state.proof.type,
-          wuRef: state.wuRef,
-          methodId: method ? method.id : r.methodId,
-          method: method ? method.name : r.method,
-          status: 'pending',
-          decidedAt: '',
-          note: '',
-          history: history,
-          resubmittedAt: nowDateTime()
+    var fichier = state.proof.file;
+    var jetonPreuve = null;
+
+    // 1. Le serveur choisit le chemin du fichier et signe une URL de dépôt.
+    api('/api/preuve-url', {
+      method: 'POST',
+      body: JSON.stringify({ nom: fichier.name, type: fichier.type, taille: fichier.size })
+    }).then(function (rep) {
+      jetonPreuve = rep.jeton;
+      // 2. Le fichier part directement vers le stockage, sans transiter par
+      //    la fonction serverless (qui plafonne à 4,5 Mo de corps de requête).
+      return fetch(rep.url, {
+        method: 'PUT',
+        headers: { 'Content-Type': fichier.type },
+        body: fichier
+      }).then(function (r) {
+        if (!r.ok) throw new Error('L\'envoi de la preuve a échoué. Réessayez.');
+      }, function () {
+        throw new Error('L\'envoi de la preuve a échoué. Vérifiez votre connexion.');
+      });
+    }).then(function () {
+      indication('Enregistrement de votre demande…', false);
+      // 3. Création du dossier, ou renvoi de preuve sur un dossier existant.
+      var charge = state.dossier
+        ? {
+            numero: state.dossier,
+            email: state.dossierEmail || form.email,
+            moyen_id: method.id,
+            reference_wu: state.wuRef,
+            preuve: jetonPreuve
+          }
+        : {
+            permis_id: permit ? permit.id : '',
+            moyen_id: method.id,
+            reference_wu: state.wuRef,
+            preuve: jetonPreuve,
+            prenom: form.prenom, nom: form.nom, naissance: form.naissance,
+            email: form.email, telephone: form.tel, ville: form.ville,
+            adresse: form.adresse, pays: form.pays, situation: form.situation
+          };
+      return api('/api/dossiers', { method: 'POST', body: JSON.stringify(charge) });
+    }).then(function (rep) {
+      state.dossier = rep.numero;
+      state.dossierDate = rep.date;
+      state.dossierMontant = rep.montant;
+      state.dossierEmail = state.dossierEmail || form.email;
+      state.envoiEnCours = false;
+      indication('', false);
+      goToStep(5);
+    }).catch(function (e) {
+      state.envoiEnCours = false;
+
+      // 422 : le serveur a revalidé les informations et en refuse certaines.
+      if (e.statut === 422 && e.donnees && e.donnees.champs) {
+        var erreurs = {};
+        Object.keys(e.donnees.champs).forEach(function (cle) {
+          erreurs[CHAMPS_API[cle] || cle] = e.donnees.champs[cle];
         });
-      }));
-    } else {
-      saveRecords(state.records.concat([{
-        dossier: id,
-        date: date,
-        client: (form.prenom + ' ' + form.nom).trim() || '—',
-        prenom: form.prenom,
-        nom: form.nom,
-        naissance: form.naissance,
-        email: form.email,
-        tel: form.tel,
-        ville: form.ville,
-        adresse: form.adresse,
-        pays: form.pays,
-        situation: form.situation,
-        address: [form.adresse, form.ville, form.pays].filter(Boolean).join(', '),
-        permitId: permit ? permit.id : '',
-        permit: permit ? permit.name : '—',
-        amount: permit ? euros(permit.price) : '—',
-        methodId: method ? method.id : '',
-        method: method ? method.name : '—',
-        wuRef: state.wuRef,
-        proofName: state.proof.name,
-        proofData: state.proof.data,
-        proofType: state.proof.type,
-        status: 'pending',
-        note: '',
-        decidedAt: '',
-        history: []
-      }]));
-    }
+        renderPayment();
+        goToStep(2);
+        showFormErrors(erreurs);
+        return;
+      }
 
-    state.dossier = id;
-    state.invoiceDate = date;
-    goToStep(5);
+      renderPayment();
+      indication(e.message, true);
+    });
   }
 
   /* ========================================================================
@@ -627,83 +666,81 @@
      ======================================================================== */
 
   function runTrack() {
-    var id = (refs.trackInput.value || '').trim().toUpperCase();
-    if (!id) {
+    var numero = (refs.trackInput.value || '').trim().toUpperCase();
+    var email = (refs.trackEmail.value || '').trim();
+
+    if (!numero) {
       refs.trackError.textContent = 'Saisissez votre numéro de dossier.';
-      state.trackFound = null;
       show(refs.trackResult, false);
       return;
     }
-    syncRecords();
-    var found = null;
-    for (var i = 0; i < state.records.length; i++) {
-      if (String(state.records[i].dossier).toUpperCase() === id) { found = state.records[i]; break; }
-    }
-    if (!found) {
-      refs.trackError.textContent = 'Aucun dossier ne correspond à ce numéro sur cet appareil.';
-      state.trackFound = null;
+    if (!email) {
+      refs.trackError.textContent = 'Saisissez l\'adresse e-mail de votre demande.';
       show(refs.trackResult, false);
       return;
     }
-    refs.trackError.textContent = '';
-    state.trackFound = found;
-    renderTrackResult(found);
+
+    refs.trackError.textContent = 'Vérification…';
+    api('/api/suivi', { method: 'POST', body: JSON.stringify({ numero: numero, email: email }) })
+      .then(function (d) {
+        refs.trackError.textContent = '';
+        state.trackFound = d;
+        state.dossierEmail = email;
+        renderTrackResult(d);
+      })
+      .catch(function (e) {
+        refs.trackError.textContent = e.message;
+        state.trackFound = null;
+        show(refs.trackResult, false);
+      });
   }
 
-  function renderTrackResult(record) {
-    var status = STATUS[record.status] || { label: '—', cls: 'pending' };
+  function renderTrackResult(d) {
+    var status = STATUS[d.statut] || { label: '—', cls: 'pending' };
 
-    $('#trackRef').textContent = record.dossier;
+    $('#trackRef').textContent = d.numero;
     var pill = $('#trackStatus');
     pill.className = 'pill pill--' + status.cls;
     pill.textContent = status.label;
 
-    $('#trackPermit').textContent = record.permit;
-    $('#trackAmount').textContent = record.amount;
-    $('#trackMethod').textContent = record.method;
+    $('#trackPermit').textContent = d.permis;
+    $('#trackAmount').textContent = euros(d.montant);
+    $('#trackMethod').textContent = d.moyen;
 
     var noteBox = $('#trackNoteBox');
-    if (record.note) {
+    if (d.message) {
       noteBox.className = 'note-box note-box--' + status.cls;
-      $('#trackNoteTitle').textContent = 'Message de notre équipe · ' + record.decidedAt;
-      $('#trackNote').textContent = record.note;
+      $('#trackNoteTitle').textContent = 'Message de notre équipe · ' + frDateHeure(d.decide_le);
+      $('#trackNote').textContent = d.message;
       show(noteBox, true);
     } else {
       show(noteBox, false);
     }
 
-    show($('#trackRetryWrap'), record.status === 'rejected');
+    show($('#trackRetryWrap'), d.statut === 'rejected');
     show(refs.trackResult, true);
   }
 
-  /* Le client renvoie une preuve : on restaure son dossier et on le ramène
-     directement à l'étape paiement. */
+  /* Le client renvoie une preuve : on le ramène directement à l'étape
+     paiement. Ses informations restent côté serveur — seuls le dossier, le
+     moyen de paiement et le nouveau fichier sont renvoyés. */
   function trackRetry() {
-    var record = state.trackFound;
-    if (!record) return;
+    var d = state.trackFound;
+    if (!d) return;
 
-    var permit = record.permitId ? permitById(record.permitId) : permitByName(record.permit);
-    var method = record.methodId ? methodById(record.methodId) : methodByName(record.method);
-
-    form.prenom = record.prenom || '';
-    form.nom = record.nom || '';
-    form.naissance = record.naissance || '';
-    form.tel = record.tel || '';
-    form.email = record.email || '';
-    form.ville = record.ville || '';
-    form.adresse = record.adresse || '';
-    form.pays = record.pays || 'France';
-    form.situation = record.situation || '';
-    fillForm();
+    var permit = permitByName(d.permis);
+    var method = methodByName(d.moyen);
 
     state.permit = permit ? permit.id : null;
     state.method = method ? method.id : null;
-    state.wuRef = record.wuRef || '';
-    if (refs.mtcn) refs.mtcn.value = state.wuRef;
-    state.dossier = record.dossier;
-    state.invoiceDate = record.date || '';
+    state.dossier = d.numero;
+    state.dossierDate = d.date;
+    state.dossierMontant = d.montant;
+    state.wuRef = '';
+    if (refs.mtcn) refs.mtcn.value = '';
     state.declared = false;
     resetProof();
+    indication('', false);
 
     // On ouvre avant de fermer : la surcouche ne se vide jamais complètement,
     // le focus et le verrou de défilement restent donc stables.
@@ -715,64 +752,80 @@
      10. Espace administrateur
      ======================================================================== */
 
-  var previewUrls = [];
-
-  function releasePreviews() {
-    previewUrls.forEach(function (url) { URL.revokeObjectURL(url); });
-    previewUrls = [];
-  }
-
-  function dataUrlToBlob(dataUrl) {
-    var parts = String(dataUrl).split(',');
-    var match = parts[0].match(/:(.*?);/);
-    var mime = (match && match[1]) || 'application/octet-stream';
-    var binary = atob(parts[1] || '');
-    var buffer = new Uint8Array(binary.length);
-    for (var i = 0; i < binary.length; i++) buffer[i] = binary.charCodeAt(i);
-    return new Blob([buffer], { type: mime });
-  }
-
-  function objectUrlFor(dataUrl) {
-    var url = URL.createObjectURL(dataUrlToBlob(dataUrl));
-    previewUrls.push(url);
-    return url;
-  }
-
-  function downloadProof(record) {
-    if (!record.proofData) return;
-    var url = URL.createObjectURL(dataUrlToBlob(record.proofData));
-    var link = document.createElement('a');
-    link.href = url;
-    link.download = record.proofName || 'preuve-paiement';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
-  }
-
   function openAdmin() {
-    syncRecords();
     refs.adminError.textContent = '';
+    refs.adminListError.textContent = '';
     openOverlay(refs.admin);
     renderAdmin();
-    if (!state.adminAuth) refs.adminPass.focus();
+
+    // Une session encore valide évite de redemander le code.
+    api('/api/admin/session', { method: 'GET' }).then(function (d) {
+      state.adminAuth = Boolean(d && d.ouverte);
+      if (state.adminAuth) return chargerAdmin();
+      renderAdmin();
+      refs.adminPass.focus();
+    }).catch(function () {
+      state.adminAuth = false;
+      renderAdmin();
+      refs.adminPass.focus();
+    });
   }
 
   function closeAdmin() {
     refs.adminPass.value = '';
-    releasePreviews();
     closeOverlay(refs.admin);
   }
 
   function adminLogin() {
-    if (refs.adminPass.value === SITE.adminCode) {
-      state.adminAuth = true;
-      refs.adminPass.value = '';
-      refs.adminError.textContent = '';
-      renderAdmin();
-    } else {
-      refs.adminError.textContent = 'Code d\'accès incorrect.';
+    var code = refs.adminPass.value;
+    if (!code) {
+      refs.adminError.textContent = 'Saisissez le code d\'accès.';
+      return;
     }
+    refs.adminError.textContent = 'Vérification…';
+    api('/api/admin/login', { method: 'POST', body: JSON.stringify({ code: code }) })
+      .then(function () {
+        refs.adminPass.value = '';
+        refs.adminError.textContent = '';
+        state.adminAuth = true;
+        return chargerAdmin();
+      })
+      .catch(function (e) {
+        state.adminAuth = false;
+        refs.adminError.textContent = e.message;
+        renderAdmin();
+      });
+  }
+
+  function adminLogout() {
+    return api('/api/admin/logout', { method: 'POST' }).catch(function () { /* sans conséquence */ })
+      .then(function () {
+        state.adminAuth = false;
+        state.records = [];
+        renderAdmin();
+      });
+  }
+
+  function chargerAdmin() {
+    refs.adminListError.textContent = '';
+    return api('/api/admin/dossiers?statut=' + encodeURIComponent(state.adminFilter), { method: 'GET' })
+      .then(function (d) {
+        state.records = d.dossiers || [];
+        state.totaux = d.totaux || state.totaux;
+        renderAdmin();
+      })
+      .catch(function (e) {
+        // 401 : la session a expiré pendant la consultation.
+        if (e.statut === 401) {
+          state.adminAuth = false;
+          renderAdmin();
+          refs.adminError.textContent = 'Session expirée, reconnectez-vous.';
+          return;
+        }
+        state.records = [];
+        renderAdmin();
+        refs.adminListError.textContent = e.message;
+      });
   }
 
   function renderAdmin() {
@@ -780,37 +833,29 @@
     show(refs.adminBody, state.adminAuth);
     if (!state.adminAuth) return;
 
-    var records = state.records;
-
-    // Filtres et compteurs
+    var totaux = state.totaux;
+    var libelles = { all: 'Toutes', pending: 'En attente', approved: 'Validées', rejected: 'Rejetées' };
     $$('[data-filter]').forEach(function (btn) {
       var id = btn.getAttribute('data-filter');
-      var count = id === 'all' ? records.length : records.filter(function (r) { return r.status === id; }).length;
-      var labels = { all: 'Toutes', pending: 'En attente', approved: 'Validées', rejected: 'Rejetées' };
-      btn.textContent = labels[id] + ' (' + count + ')';
+      btn.textContent = libelles[id] + ' (' + (totaux[id] || 0) + ')';
       btn.setAttribute('aria-pressed', state.adminFilter === id ? 'true' : 'false');
     });
 
-    var plural = records.length > 1 ? 's' : '';
-    refs.adminCount.textContent = records.length + ' demande' + plural + ' enregistrée' + plural;
+    var plural = totaux.all > 1 ? 's' : '';
+    refs.adminCount.textContent = totaux.all + ' demande' + plural + ' enregistrée' + plural;
 
-    var visible = records.filter(function (r) {
-      return state.adminFilter === 'all' || r.status === state.adminFilter;
-    }).slice().reverse();
+    show(refs.adminEmpty, state.records.length === 0 && !refs.adminListError.textContent);
 
-    show(refs.adminEmpty, visible.length === 0);
-
-    releasePreviews();
     refs.adminList.textContent = '';
-    visible.forEach(function (record) {
+    state.records.forEach(function (record) {
       refs.adminList.appendChild(buildAdminCard(record));
     });
   }
 
   function buildAdminCard(record) {
-    var status = STATUS[record.status] || { label: '—', cls: 'pending' };
+    var status = STATUS[record.statut] || { label: '—', cls: 'pending' };
     var card = el('div', 'admin-card');
-    card.setAttribute('data-dossier', record.dossier);
+    card.setAttribute('data-dossier', record.numero);
 
     /* En-tête */
     var head = el('div', 'admin-card__head');
@@ -819,15 +864,16 @@
     client.appendChild(el('span', 'admin-card__name', record.client));
     client.appendChild(el('span', 'pill admin-card__pill pill--' + status.cls, status.label));
     left.appendChild(client);
-    left.appendChild(el('p', 'admin-card__ref', record.dossier + ' · ' + record.date));
-    if (record.resubmittedAt) {
-      left.appendChild(el('p', 'admin-card__resubmit', 'Nouvelle preuve reçue le ' + record.resubmittedAt));
+    left.appendChild(el('p', 'admin-card__ref', record.numero + ' · ' + frJour(record.date)));
+    if (record.renvoye_le) {
+      left.appendChild(el('p', 'admin-card__resubmit',
+        'Nouvelle preuve reçue le ' + frDateHeure(record.renvoye_le)));
     }
     head.appendChild(left);
 
     var money = el('div', 'admin-card__money');
-    money.appendChild(el('p', 'admin-card__amount', record.amount));
-    money.appendChild(el('p', 'admin-card__sub', record.permit + ' · ' + record.method));
+    money.appendChild(el('p', 'admin-card__amount', euros(record.montant)));
+    money.appendChild(el('p', 'admin-card__sub', record.permis + ' · ' + record.moyen));
     head.appendChild(money);
     card.appendChild(head);
 
@@ -838,39 +884,48 @@
     contactCol.appendChild(el('p', 'admin-label', 'Coordonnées'));
     var contact = el('div', 'admin-contact');
     contact.appendChild(el('span', null, record.email || '—'));
-    contact.appendChild(el('span', null, record.tel || '—'));
-    contact.appendChild(el('span', null, record.address || '—'));
-    if (record.wuRef) contact.appendChild(el('span', 'admin-contact__mtcn', 'MTCN : ' + record.wuRef));
+    contact.appendChild(el('span', null, record.telephone || '—'));
+    contact.appendChild(el('span', null, record.adresse || '—'));
+    if (record.naissance) {
+      contact.appendChild(el('span', 'admin-contact__mtcn', 'Né(e) le ' + frDate(record.naissance)));
+    }
+    if (record.reference_wu) {
+      contact.appendChild(el('span', 'admin-contact__mtcn', 'MTCN : ' + record.reference_wu));
+    }
     contactCol.appendChild(contact);
     cols.appendChild(contactCol);
 
     var proofCol = el('div', 'admin-proof');
     proofCol.appendChild(el('p', 'admin-label', 'Preuve de paiement'));
-    proofCol.appendChild(el('p', 'admin-proof__name', record.proofName || 'Aucun fichier'));
+    proofCol.appendChild(el('p', 'admin-proof__name', record.preuve_nom || 'Aucun fichier'));
 
-    if (record.proofData) {
+    if (record.a_preuve) {
+      /* Le fichier est servi par /api/admin/preuve, protégé par la session :
+         le stockage reste privé, sans URL publique. Le paramètre « v » évite
+         qu'un ancien fichier reste en cache après un renvoi de preuve. */
+      var version = encodeURIComponent(record.renvoye_le || record.date || '');
+      var source = '/api/admin/preuve?numero=' + encodeURIComponent(record.numero) + '&v=' + version;
       var view = el('div', 'admin-proof__view');
-      var url = objectUrlFor(record.proofData);
-      if ((record.proofType || '').indexOf('image/') === 0) {
+
+      if ((record.preuve_type || '').indexOf('image/') === 0) {
         var img = document.createElement('img');
-        img.src = url;
+        img.src = source;
         img.alt = 'Preuve de paiement transmise par ' + record.client;
+        img.loading = 'lazy';
         view.appendChild(img);
       } else {
         var frame = document.createElement('iframe');
-        frame.src = url;
+        frame.src = source;
         frame.title = 'Preuve de paiement transmise par ' + record.client;
         view.appendChild(frame);
       }
       proofCol.appendChild(view);
 
-      var dl = el('button', 'admin-proof__download', 'Télécharger le fichier');
-      dl.type = 'button';
-      dl.addEventListener('click', function () { downloadProof(record); });
+      var dl = document.createElement('a');
+      dl.className = 'admin-proof__download';
+      dl.href = source + '&telecharger=1';
+      dl.textContent = 'Télécharger le fichier';
       proofCol.appendChild(dl);
-    } else if (record.proofTruncated) {
-      proofCol.appendChild(el('p', 'admin-proof__missing',
-        'Fichier trop volumineux pour le stockage local : il n\'est visible que depuis l\'appareil où la demande a été envoyée.'));
     } else {
       proofCol.appendChild(el('p', 'admin-proof__missing', 'Aucun fichier transmis.'));
     }
@@ -880,30 +935,30 @@
     /* Décision */
     var decide = el('div', 'admin-decide');
 
-    if (record.status === 'pending') {
+    if (record.statut === 'pending') {
       var label = el('label', 'admin-decide__label');
-      label.setAttribute('for', 'msg-' + record.dossier);
+      label.setAttribute('for', 'msg-' + record.numero);
       label.appendChild(document.createTextNode('Message au client '));
       label.appendChild(el('span', 'admin-decide__req', '— obligatoire en cas de rejet'));
       decide.appendChild(label);
 
       var textarea = document.createElement('textarea');
-      textarea.id = 'msg-' + record.dossier;
+      textarea.id = 'msg-' + record.numero;
       textarea.rows = 3;
       textarea.placeholder = 'Ex. : Paiement bien reçu, votre formation démarre la semaine prochaine. / La preuve envoyée est illisible, merci de renvoyer le reçu complet.';
-      textarea.value = state.adminMsg[record.dossier] || '';
+      textarea.value = state.adminMsg[record.numero] || '';
       textarea.addEventListener('input', function () {
-        state.adminMsg[record.dossier] = textarea.value;
+        state.adminMsg[record.numero] = textarea.value;
       });
       decide.appendChild(textarea);
 
       var actions = el('div', 'admin-decide__actions');
       var approve = el('button', 'btn-approve', 'Valider le paiement');
       approve.type = 'button';
-      approve.addEventListener('click', function () { decide_(record.dossier, 'approved'); });
+      approve.addEventListener('click', function () { decider(record.numero, 'approved', approve); });
       var reject = el('button', 'btn-reject', 'Rejeter la preuve');
       reject.type = 'button';
-      reject.addEventListener('click', function () { decide_(record.dossier, 'rejected'); });
+      reject.addEventListener('click', function () { decider(record.numero, 'rejected', reject); });
       var error = el('span', 'admin-decide__error');
       error.setAttribute('data-decide-error', '');
       error.setAttribute('role', 'alert');
@@ -912,21 +967,21 @@
       actions.appendChild(error);
       decide.appendChild(actions);
     } else {
-      decide.appendChild(el('p', 'admin-locked', record.status === 'approved'
+      decide.appendChild(el('p', 'admin-locked', record.statut === 'approved'
         ? 'Dossier validé — aucune nouvelle décision possible tant que le client n\'a pas transmis une nouvelle preuve.'
         : 'Preuve rejetée — en attente d\'une nouvelle preuve de paiement du client.'));
     }
 
-    if (record.history && record.history.length) {
-      decide.appendChild(el('p', 'admin-history', 'Historique : ' + record.history.map(function (h) {
-        return (h.status === 'approved' ? 'Validé' : 'Rejeté') + ' le ' + h.at + ' — ' + h.note;
+    if (record.historique && record.historique.length) {
+      decide.appendChild(el('p', 'admin-history', 'Historique : ' + record.historique.map(function (h) {
+        return (h.statut === 'approved' ? 'Validé' : 'Rejeté') + ' le ' + frDateHeure(h.le) + ' — ' + h.message;
       }).join(' · ')));
     }
 
-    if (record.decidedAt) {
+    if (record.decide_le) {
       var box = el('div', 'note-box admin-decision note-box--' + status.cls);
-      box.appendChild(el('p', 'note-box__title', 'Décision transmise au client · ' + record.decidedAt));
-      box.appendChild(el('p', 'note-box__body', record.note));
+      box.appendChild(el('p', 'note-box__title', 'Décision transmise au client · ' + frDateHeure(record.decide_le)));
+      box.appendChild(el('p', 'note-box__body', record.message));
       decide.appendChild(box);
     }
 
@@ -934,37 +989,41 @@
     return card;
   }
 
-  /* Nom volontairement suffixé : « decide » seul entrerait en collision avec
-     le mot-clé réservé d'anciens moteurs. */
-  function decide_(dossier, status) {
-    var record = findRecord(dossier);
-    if (!record || record.status !== 'pending') return;
+  function erreurDecision(numero, texte) {
+    var card = $('.admin-card[data-dossier="' + (window.CSS && CSS.escape ? CSS.escape(numero) : numero) + '"]', refs.adminList);
+    var slot = card && $('[data-decide-error]', card);
+    if (slot) slot.textContent = texte;
+  }
 
-    var message = (state.adminMsg[dossier] || '').trim();
-    if (status === 'rejected' && !message) {
-      var card = $('.admin-card[data-dossier="' + CSS.escape(dossier) + '"]', refs.adminList);
-      var slot = card && $('[data-decide-error]', card);
-      if (slot) slot.textContent = 'Indiquez la raison du rejet avant de rejeter.';
+  function decider(numero, statut, bouton) {
+    var message = (state.adminMsg[numero] || '').trim();
+
+    // Contrôle local pour un retour immédiat ; le serveur applique la même
+    // règle, c'est lui qui fait autorité.
+    if (statut === 'rejected' && !message) {
+      erreurDecision(numero, 'Indiquez la raison du rejet avant de rejeter.');
       return;
     }
 
-    var fallback = status === 'approved'
-      ? 'Votre paiement a été vérifié et validé. Un conseiller vous contacte pour planifier votre formation.'
-      : 'Votre preuve de paiement n\'a pas pu être validée.';
+    erreurDecision(numero, '');
+    if (bouton) bouton.disabled = true;
 
-    delete state.adminMsg[dossier];
-
-    saveRecords(state.records.map(function (r) {
-      if (r.dossier !== dossier) return r;
-      return Object.assign({}, r, {
-        status: status,
-        decidedAt: nowDateTime(),
-        note: message || fallback,
-        resubmittedAt: ''
-      });
-    }));
-
-    renderAdmin();
+    api('/api/admin/decision', {
+      method: 'POST',
+      body: JSON.stringify({ numero: numero, statut: statut, message: message })
+    }).then(function () {
+      delete state.adminMsg[numero];
+      return chargerAdmin();
+    }).catch(function (e) {
+      if (bouton) bouton.disabled = false;
+      if (e.statut === 401) {
+        state.adminAuth = false;
+        renderAdmin();
+        refs.adminError.textContent = 'Session expirée, reconnectez-vous.';
+        return;
+      }
+      erreurDecision(numero, e.message);
+    });
   }
 
   /* ========================================================================
@@ -974,8 +1033,9 @@
   function invoiceHtml() {
     var permit = currentPermit();
     var method = currentMethod();
-    var price = permit ? permit.price : 0;
+    var prix = montant() || 0;
     var invoiceNo = state.dossier.replace('PE-', 'FA-');
+    var nomFormation = permit ? permit.name : (state.trackFound ? state.trackFound.permis : '—');
 
     function esc(value) {
       return String(value == null ? '' : value).replace(/[&<>"]/g, function (c) {
@@ -999,7 +1059,7 @@
       '<div style="margin-top:10px;font-size:12px;color:#5A5F6E">' + esc(SITE.contact.phone) + '<br>' + esc(SITE.contact.legal) + '</div></div>' +
       '<div style="text-align:right"><div style="font-size:18px;font-weight:700">FACTURE</div>' +
       '<div style="font-family:monospace;margin-top:6px">' + esc(invoiceNo) + '</div>' +
-      '<div style="color:#8B90A0">' + esc(state.invoiceDate) + '</div>' +
+      '<div style="color:#8B90A0">' + esc(frJour(state.dossierDate)) + '</div>' +
       '<div style="color:#8B90A0">Dossier ' + esc(state.dossier) + '</div></div></div><div class="band"></div>' +
       '<div class="box"><div class="lbl">Client</div><table>' +
       row('Nom et prénom', (form.prenom + ' ' + form.nom).trim() || '—') +
@@ -1007,17 +1067,17 @@
       row('Ville', form.ville || '—') +
       row('Pays', form.pays || '—') +
       row('Téléphone', form.tel || '—') +
-      row('E-mail', form.email || '—') +
+      row('E-mail', form.email || state.dossierEmail || '—') +
       row('Date de naissance', frDate(form.naissance) || '—') +
       '</table></div>' +
       '<div class="box"><div class="lbl">Détail de la commande</div><table><thead><tr>' +
       '<th style="text-align:left;border-bottom:1px solid #E6E7EC;padding-bottom:8px;font-size:11px;color:#8B90A0;text-transform:uppercase">Prestation</th>' +
       '<th style="text-align:right;border-bottom:1px solid #E6E7EC;padding-bottom:8px;font-size:11px;color:#8B90A0;text-transform:uppercase">Montant</th>' +
       '</tr></thead><tbody>' +
-      '<tr><td style="padding:12px 0">' + esc(permit ? permit.name : '—') + ' — accompagnement complet</td>' +
-      '<td style="padding:12px 0;text-align:right">' + price + ' €</td></tr>' +
+      '<tr><td style="padding:12px 0">' + esc(nomFormation) + ' — accompagnement complet</td>' +
+      '<td style="padding:12px 0;text-align:right">' + prix + ' €</td></tr>' +
       '<tr><td style="padding:12px 0;border-top:1px solid #E6E7EC;font-weight:700">Total à régler</td>' +
-      '<td style="padding:12px 0;border-top:1px solid #E6E7EC;text-align:right;font-weight:700;font-size:18px">' + price + ' €</td></tr>' +
+      '<td style="padding:12px 0;border-top:1px solid #E6E7EC;text-align:right;font-weight:700;font-size:18px">' + prix + ' €</td></tr>' +
       '</tbody></table></div>' +
       '<div class="box"><div class="lbl">Paiement</div><table>' +
       row('Moyen de paiement', method ? method.name : '—') +
@@ -1089,15 +1149,19 @@
   var ACTIONS = {
     start: function () {
       closeMobileNav();
+      nouvelleDemande();
       openFunnel(state.permit ? 2 : 1);
     },
     choose: function (btn) {
+      closeMobileNav();
+      nouvelleDemande();
       state.permit = btn.getAttribute('data-permit');
       clearFormErrors();
       openFunnel(2);
     },
     'pick-permit': function (btn) {
       state.permit = btn.getAttribute('data-permit');
+      state.dossierMontant = null;
       clearFormErrors();
       goToStep(2);
     },
@@ -1114,6 +1178,7 @@
       state.method = btn.getAttribute('data-method');
       state.declared = false;
       resetProof();
+      indication('', false);
       // Un MTCN ne concerne que Western Union : on l'oublie si on en change.
       if (state.method !== 'wu') {
         state.wuRef = '';
@@ -1127,11 +1192,10 @@
     },
     confirm: function () { confirmRequest(); },
     invoice: function () { printInvoice(); },
-    'funnel-close': function () { closeFunnel(); },
+    'funnel-close': function () { if (!state.envoiEnCours) closeFunnel(); },
 
     track: function () {
       closeMobileNav();
-      syncRecords();
       refs.trackError.textContent = '';
       state.trackFound = null;
       show(refs.trackResult, false);
@@ -1141,9 +1205,10 @@
     'track-run': function () { runTrack(); },
     'track-retry': function () { trackRetry(); },
 
-    admin: function () { openAdmin(); },
+    admin: function () { closeMobileNav(); openAdmin(); },
     'admin-close': function () { closeAdmin(); },
     'admin-login': function () { adminLogin(); },
+    'admin-logout': function () { adminLogout(); },
 
     copy: function (btn) {
       var key = btn.getAttribute('data-copy');
@@ -1156,6 +1221,23 @@
       copyValue(btn, values[key] || '');
     }
   };
+
+  /* Repart d'une demande vierge : sans cela, un second client sur le même
+     appareil renverrait une preuve sur le dossier du précédent. */
+  function nouvelleDemande() {
+    if (!state.dossier) return;
+    state.dossier = '';
+    state.dossierDate = '';
+    state.dossierMontant = null;
+    state.dossierEmail = '';
+    state.trackFound = null;
+    state.method = null;
+    state.declared = false;
+    state.wuRef = '';
+    if (refs.mtcn) refs.mtcn.value = '';
+    resetProof();
+    indication('', false);
+  }
 
   function closeMobileNav() {
     show(refs.navMobile, false);
@@ -1212,8 +1294,10 @@
       refs.mtcn.addEventListener('input', function () { state.wuRef = refs.mtcn.value; });
     }
 
-    refs.trackInput.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); runTrack(); }
+    [refs.trackInput, refs.trackEmail].forEach(function (champ) {
+      champ.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); runTrack(); }
+      });
     });
 
     refs.adminPass.addEventListener('keydown', function (e) {
@@ -1224,39 +1308,13 @@
     $$('[data-filter]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         state.adminFilter = btn.getAttribute('data-filter');
-        renderAdmin();
+        chargerAdmin();
       });
     });
-
-    // Les dossiers peuvent être modifiés dans un autre onglet.
-    window.addEventListener('storage', function (e) {
-      if (e.key !== STORE_KEY) return;
-      syncRecords();
-      if (state.adminAuth && !refs.admin.hidden) renderAdmin();
-    });
   }
 
   /* ========================================================================
-     14. Cohérence du catalogue
-     ======================================================================== */
-
-  function checkCatalogue() {
-    $$('#tarifsGrid [data-permit]').forEach(function (card) {
-      var id = card.getAttribute('data-permit');
-      var price = card.getAttribute('data-price');
-      if (!price) return;
-      var permit = permitById(id);
-      if (!permit) {
-        console.warn('[Permis Express] Tarif « ' + id +' » absent de PERMITS (app.js).');
-      } else if (String(permit.price) !== price) {
-        console.warn('[Permis Express] Prix divergent pour « ' + id + ' » : ' +
-          price + ' € dans index.html, ' + permit.price + ' € dans app.js.');
-      }
-    });
-  }
-
-  /* ========================================================================
-     15. Démarrage
+     14. Démarrage
      ======================================================================== */
 
   function init() {
@@ -1273,12 +1331,13 @@
     show($('#bankTodo'), !SITE.bank.complete);
     show($('#wuTodo'), !SITE.westernUnion.complete);
 
-    buildPermitGrid();
-    state.records = readStore();
     fillForm();
     wire();
-    renderFunnel();
-    checkCatalogue();
+
+    chargerCatalogue().then(function () {
+      buildPermitGrid();
+      renderFunnel();
+    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

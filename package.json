@@ -1,0 +1,13 @@
+{
+  "name": "permis-express",
+  "private": true,
+  "type": "module",
+  "description": "Site vitrine et parcours d'inscription Permis Express",
+  "scripts": {
+    "code-admin": "node scripts/generer-code-admin.mjs",
+    "verifier": "node scripts/verifier-supabase.mjs",
+    "verifier-catalogue": "node scripts/verifier-catalogue.mjs",
+    "test": "node qa/parcours.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

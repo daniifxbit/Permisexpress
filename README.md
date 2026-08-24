@@ -3,9 +3,9 @@
 Site vitrine et parcours d'inscription en ligne de **Permis Express** —
 « Votre permis, notre priorité ».
 
-Une seule page, sans étape de build : ouvrir `index.html` suffit, et le
-déploiement statique (Vercel, Netlify, tout hébergeur de fichiers) fonctionne
-sans configuration.
+Site statique et fonctions serverless, sans étape de build. Les dossiers et les
+preuves de paiement sont stockés côté serveur (Supabase) ; l'espace
+administrateur est protégé par une authentification serveur.
 
 ## Ce que fait le site
 
@@ -22,10 +22,10 @@ suivi de dossier, avis clients, FAQ, pied de page.
 5. confirmation : numéro de dossier, statut, prochaines étapes et facture
    téléchargeable en PDF.
 
-**Suivi de dossier** — le client saisit son numéro de dossier et consulte le
-statut de son paiement ainsi que le message rédigé par l'équipe. Si sa preuve a
-été rejetée, un bouton le ramène directement à l'étape paiement pour en
-renvoyer une nouvelle.
+**Suivi de dossier** — le client saisit son numéro de dossier **et l'adresse
+e-mail de sa demande**, puis consulte le statut de son paiement et le message
+rédigé par l'équipe. Si sa preuve a été rejetée, un bouton le ramène
+directement à l'étape paiement pour en renvoyer une nouvelle.
 
 **Espace administrateur** (lien en bas de page) — liste des demandes,
 coordonnées du client, aperçu de la preuve (image affichée, PDF lisible dans un
@@ -41,32 +41,100 @@ Le site ne prétend jamais qu'un paiement a été encaissé. Il distingue trois
 ## Structure
 
 ```
-index.html            Page complète (vitrine + surcouches parcours / admin / suivi)
-styles.css            Feuille de styles unique
-app.js                Logique : parcours, stockage, admin, suivi, facture
-assets/
-  logo.png            Logo (512×512)
-  favicon.png         Icône d'onglet
-  apple-touch-icon.png
-  fonts.css           Déclarations @font-face
-  fonts/              Archivo + Instrument Sans (woff2, auto-hébergées)
-qa/parcours.mjs       Suite de tests de bout en bout (Playwright)
+index.html               Page complète (vitrine + surcouches)
+styles.css               Feuille de styles unique
+app.js                   Logique de la page — ne contient aucun secret
+assets/                  Logo, icônes, polices auto-hébergées
+
+api/                     Fonctions serverless (Node, sans dépendance)
+  _lib/
+    catalogue.js         Formations et prix — source de vérité
+    supabase.js          Accès base et stockage via l'API REST
+    auth.js              Empreinte du code admin, cookies de session, jetons
+    http.js              Utilitaires de requête et de réponse
+  catalogue.js           GET  — formations et moyens de paiement
+  preuve-url.js          POST — URL de dépôt signée pour la preuve
+  dossiers.js            POST — création d'une demande / renvoi de preuve
+  suivi.js               POST — consultation par le client (numéro + e-mail)
+  admin/
+    login.js             POST — connexion (empreinte scrypt + session)
+    logout.js            POST
+    session.js           GET  — session en cours ?
+    dossiers.js          GET  — liste des demandes
+    decision.js          POST — validation / rejet
+    preuve.js            GET  — sert le fichier de preuve
+
+supabase/schema.sql      Tables, index, RLS et bucket — à exécuter une fois
+scripts/                 Outils : code admin, vérifications
+qa/                      Suite de tests de bout en bout
 ```
 
 Les polices sont **auto-hébergées** : la page n'émet aucune requête vers un
 domaine tiers. C'est plus rapide, et cela évite de transmettre l'adresse IP des
 visiteurs à Google — un point sensible pour un site commercial français.
 
-## À compléter avant la mise en ligne
+---
 
-Tout est regroupé en haut de `app.js`, dans l'objet `SITE` :
+## Mise en service
 
-| Élément | Où | Statut |
+### 1. Créer le projet Supabase
+
+Sur [supabase.com](https://supabase.com), créer un projet (l'offre gratuite
+suffit largement : 500 Mo de base, 1 Go de fichiers). Choisir une région
+européenne — les dossiers contiennent des données personnelles.
+
+Puis **SQL Editor → New query**, coller le contenu de `supabase/schema.sql` et
+l'exécuter. Cela crée les tables, active le verrouillage des accès et crée le
+bucket privé `preuves`.
+
+### 2. Générer le code d'accès administrateur
+
+```sh
+npm run code-admin
+```
+
+Le script demande un code (12 caractères minimum) et affiche deux valeurs à
+reporter dans les variables d'environnement. **Le code lui-même n'est stocké
+nulle part** : seule son empreinte scrypt l'est. Conservez-le de votre côté.
+
+> L'ancien code de la version sans serveur (`#Capaciteur200K#`) figure dans
+> l'historique public de ce dépôt : **il ne doit plus être réutilisé.**
+> Choisissez-en un nouveau.
+
+### 3. Renseigner les variables d'environnement
+
+Dans Vercel : **Project → Settings → Environment Variables**. Voir
+`.env.example` pour la liste commentée.
+
+| Variable | Où la trouver |
+|---|---|
+| `SUPABASE_URL` | Supabase → Project Settings → Data API |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API Keys → `service_role` |
+| `ADMIN_PASSWORD_HASH` | affiché par `npm run code-admin` |
+| `SESSION_SECRET` | affiché par `npm run code-admin` |
+
+La clé `service_role` contourne toutes les règles d'accès de la base. Elle
+n'est lue que par les fonctions serverless et ne doit jamais être exposée au
+navigateur ni committée.
+
+### 4. Vérifier que tout répond
+
+```sh
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run verifier
+```
+
+Le script crée puis supprime un dossier et un fichier de test, et signale
+précisément ce qui ne fonctionne pas. À lancer avant la première mise en ligne.
+
+### 5. Compléter les informations commerciales
+
+En haut de `app.js`, dans l'objet `SITE` :
+
+| Élément | Clé | Statut |
 |---|---|---|
 | Coordonnées bancaires (titulaire, IBAN, BIC) | `SITE.bank` | **à fournir** |
 | Bénéficiaire et ville Western Union | `SITE.westernUnion` | **à fournir** |
 | Mentions société sur la facture (SIRET, TVA, adresse) | `SITE.invoiceLegal` | **à fournir** |
-| Code d'accès administrateur | `SITE.adminCode` | défini (voir limites) |
 
 Une fois les vraies coordonnées saisies, passer `SITE.bank.complete` et
 `SITE.westernUnion.complete` à `true` : les encadrés orange « à compléter »
@@ -79,55 +147,78 @@ Deux interrupteurs d'affichage, toujours dans `SITE` :
 
 - `promoBar` — le bandeau en haut de page ;
 - `gallery` — la section « En images », désactivée faute de photos réelles.
-  Remplacer les blocs `.gallery-ph` de `index.html` par de vraies `<img>`, puis
-  passer le drapeau à `true`.
 
-Les tarifs figurent à deux endroits : dans `PERMITS` (`app.js`), qui alimente le
-parcours, le récapitulatif et la facture, et en HTML statique dans la section
-Tarifs, pour le référencement. `checkCatalogue()` compare les deux au
-chargement et signale toute divergence dans la console.
+---
+
+## Comment les accès sont protégés
+
+- **Aucun secret dans la page.** `app.js` ne contient ni code d'accès, ni clé
+  d'API. Le code administrateur est vérifié par `/api/admin/login` à partir de
+  son empreinte scrypt ; une comparaison à temps constant évite de laisser
+  fuiter l'information par le temps de réponse.
+- **Session par cookie signé** — `HttpOnly` (inaccessible au JavaScript),
+  `Secure`, `SameSite=Strict` (pas d'envoi depuis un autre site), 8 heures.
+- **Tentatives limitées** — dix échecs depuis une même adresse IP bloquent la
+  connexion quinze minutes.
+- **Base verrouillée** — RLS activé sans aucune policy : seules les fonctions
+  serverless, qui utilisent la clé `service_role`, accèdent aux données.
+- **Preuves dans un bucket privé** — aucun fichier n'a d'URL publique. Le dépôt
+  passe par une URL signée à usage unique dont le chemin est choisi par le
+  serveur ; la lecture passe par `/api/admin/preuve`, derrière la session.
+- **Le suivi client exige numéro + e-mail.** Le numéro seul ne suffit pas :
+  sinon, essayer des numéros au hasard révélerait le nom et le montant d'autres
+  clients. La réponse est la même que le dossier n'existe pas ou que l'e-mail ne
+  corresponde pas — rien ne permet de deviner quels numéros existent.
+- **Le montant vient du serveur.** Le navigateur envoie un identifiant de
+  formation, jamais un prix.
+- **Le verrouillage après décision est appliqué côté serveur**, pas seulement
+  par l'affichage.
 
 ## Limites connues
 
-Ces points demandent un serveur ; ils sont volontairement laissés en l'état
-plutôt que simulés.
-
-- **Les dossiers sont stockés dans le navigateur** (`localStorage`). L'espace
-  administrateur ne voit donc que les demandes envoyées **depuis le même
-  appareil et le même navigateur**. Un véritable back-office suppose une base
-  de données et une API. Le point d'entrée à remplacer est `saveRecords()` /
-  `readStore()` dans `app.js`.
-- **Le code d'accès administrateur est dans le code de la page**, donc lisible
-  par n'importe quel visiteur. C'est une protection de façade, acceptable pour
-  une démonstration seulement : une vraie authentification doit se faire côté
-  serveur.
 - **Aucun e-mail n'est envoyé.** Le client est informé via « Suivre ma
-  demande ». L'envoi automatique demande un service côté serveur.
-- **Wero n'est pas raccordé.** L'interface est prête ; la fonction
-  `startWeroPayment()` dans `app.js` marque l'endroit où brancher l'API ou le
-  lien de paiement officiel. En attendant, le site annonce clairement qu'un
-  conseiller enverra un lien de paiement.
-- Si une preuve de paiement dépasse le quota du navigateur, le dossier est
-  malgré tout conservé, sans le fichier ; l'espace administrateur l'indique.
+  demande ». Le point d'intégration est marqué dans `api/admin/decision.js`.
+- **Wero n'est pas raccordé.** L'interface est prête ; en attendant, le site
+  annonce clairement qu'un conseiller enverra un lien de paiement.
+- **Pas de purge automatique.** Un client qui abandonne après avoir déposé sa
+  preuve, sans valider, laisse un fichier orphelin dans le bucket. Sans
+  conséquence fonctionnelle, mais un nettoyage périodique serait utile.
+- **Un seul compte administrateur**, sans traçabilité des décisions par
+  utilisateur. Suffisant pour une équipe réduite ; à faire évoluer au-delà.
+
+---
 
 ## Développement
 
-Aucune dépendance, aucun build. Pour un aperçu local :
+Aucune dépendance à installer pour faire tourner le site. Pour un aperçu local
+de la seule vitrine :
 
 ```sh
-python3 -m http.server 8000     # puis http://localhost:8000
+python3 -m http.server 8000     # http://localhost:8000
 ```
 
-Ouvrir `index.html` directement depuis le disque fonctionne aussi.
+Le parcours d'inscription a besoin des fonctions serverless : utiliser le banc
+d'essai des tests (ci-dessous) ou `vercel dev`.
 
 ### Tests
 
-`qa/parcours.mjs` couvre le parcours complet, la validation du formulaire, les
-trois moyens de paiement, la preuve obligatoire, l'espace administrateur, le
-suivi, le renvoi d'une preuve, l'accessibilité clavier et le rendu mobile,
-tablette et bureau (100 assertions).
+`qa/parcours.mjs` démarre `qa/serveur-test.mjs` — le site, les **vraies**
+fonctions serverless, et un faux Supabase qui rejoue la portion de son API REST
+que le code utilise — puis déroule le parcours complet dans un navigateur :
+119 assertions couvrant la vitrine, la validation, les trois moyens de
+paiement, la preuve obligatoire, l'espace administrateur, le suivi, le renvoi
+de preuve, les contrôles d'accès de l'API, l'accessibilité clavier, le rendu
+mobile/tablette/bureau et le repli si l'API est injoignable.
 
 ```sh
 npm install --no-save playwright && npx playwright install chromium
-node qa/parcours.mjs
+npm test
+```
+
+Le faux Supabase valide que **notre** code appelle Supabase de façon cohérente,
+pas que nos hypothèses sur Supabase sont exactes : c'est `npm run verifier`,
+lancé contre un vrai projet, qui le confirme.
+
+```sh
+npm run verifier-catalogue   # les prix de index.html correspondent-ils au catalogue serveur ?
 ```

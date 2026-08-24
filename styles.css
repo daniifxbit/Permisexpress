@@ -882,6 +882,8 @@ h1, h2 {
 
 .confirm-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .confirm-hint { font-size: 13px; color: var(--err); font-weight: 600; }
+/* Même emplacement, ton neutre : « Envoi en cours… » n'est pas une erreur. */
+.confirm-hint--info { color: var(--muted); }
 
 /* Confirmation */
 .done { max-width: 640px; margin: 0 auto; text-align: center; }

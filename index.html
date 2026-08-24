@@ -561,10 +561,16 @@
       <h2 class="modal__title" id="trackTitle">Suivre ma demande</h2>
       <button type="button" class="modal__close" data-action="track-close" aria-label="Fermer">✕</button>
     </div>
-    <p class="modal__lead">Saisissez le numéro de dossier reçu à la fin de votre inscription pour connaître le statut de votre paiement et le message de notre équipe.</p>
+    <p class="modal__lead">Saisissez le numéro de dossier reçu à la fin de votre inscription, ainsi que l'adresse e-mail de votre demande, pour connaître le statut de votre paiement et le message de notre équipe.</p>
 
-    <label class="field__label" for="trackInput">Numéro de dossier</label>
-    <input class="field__input" id="trackInput" placeholder="PE-2026-1234" autocomplete="off">
+    <div class="field">
+      <label class="field__label" for="trackInput">Numéro de dossier</label>
+      <input class="field__input" id="trackInput" placeholder="PE-2026-123456" autocomplete="off">
+    </div>
+    <div class="field" style="margin-top:14px">
+      <label class="field__label" for="trackEmail">Adresse e-mail de la demande</label>
+      <input class="field__input" id="trackEmail" type="email" placeholder="vous@exemple.fr" autocomplete="email">
+    </div>
     <button type="button" class="btn btn-gold btn-block" data-action="track-run">Vérifier mon statut</button>
     <p class="form-error" id="trackError" role="alert"></p>
 
@@ -615,7 +621,6 @@
       <input class="field__input" id="adminPass" type="password" autocomplete="current-password">
       <p class="field__error" id="adminError" role="alert"></p>
       <button type="button" class="btn btn-gold btn-block" data-action="admin-login">Se connecter</button>
-      <p class="todo-note">code défini côté front — à remplacer par une authentification serveur réelle</p>
     </div>
   </div>
 
@@ -630,6 +635,7 @@
         <span class="admin-count" id="adminCount"></span>
       </div>
 
+      <p class="form-error" id="adminListError" role="alert"></p>
       <p class="admin-empty" id="adminEmpty" hidden>Aucune demande dans cette catégorie pour le moment.</p>
       <div class="admin-list" id="adminList"></div>
     </div>
@@ -899,7 +905,7 @@
           <button type="button" class="btn btn-outline btn-md" data-action="back-recap">← Retour au récapitulatif</button>
           <div class="confirm-wrap" id="confirmWrap" hidden>
             <button type="button" class="btn btn-gold btn-md" data-action="confirm" disabled>Confirmer ma demande →</button>
-            <span class="confirm-hint" id="confirmHint">Une preuve de paiement est obligatoire pour confirmer.</span>
+            <span class="confirm-hint" id="confirmHint" role="status">Une preuve de paiement est obligatoire pour confirmer.</span>
           </div>
         </div>
       </section>

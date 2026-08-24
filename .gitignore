@@ -2,6 +2,14 @@
 node_modules/
 package-lock.json
 
+# Variables d'environnement — ne jamais committer
+.env
+.env.local
+.env*.local
+
+# Vercel
+.vercel
+
 # Divers
 .DS_Store
 Thumbs.db
