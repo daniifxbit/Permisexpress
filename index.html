@@ -607,7 +607,10 @@
         <span class="brand__name">Permis <span>Express</span></span>
         <span class="overlay__brand-sub" id="adminBarTitle">Espace administrateur</span>
       </span>
-      <button type="button" class="overlay__close" data-action="admin-close">✕ Fermer</button>
+      <span class="overlay__actions">
+        <button type="button" class="overlay__close" data-action="admin-logout" id="adminLogout" hidden>Se déconnecter</button>
+        <button type="button" class="overlay__close" data-action="admin-close">✕ Fermer</button>
+      </span>
     </div>
     <div class="tricolor"></div>
   </div>
@@ -627,6 +630,56 @@
   <!-- Liste des dossiers -->
   <div class="admin-body" id="adminBody" hidden>
     <div class="admin-body__inner">
+
+      <nav class="admin-onglets" role="tablist" aria-label="Sections">
+        <button type="button" class="admin-onglet" role="tab" data-onglet="demandes" aria-selected="true">Demandes</button>
+        <button type="button" class="admin-onglet" role="tab" data-onglet="reglages" aria-selected="false">Coordonnées bancaires</button>
+      </nav>
+
+      <!-- ---------- Réglages ---------- -->
+      <section class="admin-section" data-section="reglages" hidden>
+        <div class="admin-panneau">
+          <h3 class="admin-reglages__titre">Compte qui reçoit les virements</h3>
+          <p class="admin-reglages__aide">Ces coordonnées s'affichent au client à l'étape de paiement.
+            L'IBAN est vérifié avant enregistrement : une faute de frappe est refusée plutôt que
+            mise en ligne.</p>
+
+          <form id="banqueForm" class="admin-reglages" novalidate>
+            <div class="field">
+              <label class="field__label" for="b-titulaire">Titulaire du compte</label>
+              <input class="field__input" id="b-titulaire" name="titulaire" autocomplete="off" aria-describedby="eb-titulaire">
+              <p class="field__error" id="eb-titulaire"></p>
+            </div>
+            <div class="field">
+              <label class="field__label" for="b-iban">IBAN</label>
+              <input class="field__input" id="b-iban" name="iban" autocomplete="off" spellcheck="false" aria-describedby="eb-iban">
+              <p class="field__error" id="eb-iban"></p>
+            </div>
+            <div class="field">
+              <label class="field__label" for="b-bic">BIC <span class="field__opt">(facultatif)</span></label>
+              <input class="field__input" id="b-bic" name="bic" autocomplete="off" spellcheck="false" aria-describedby="eb-bic">
+              <p class="field__error" id="eb-bic"></p>
+            </div>
+            <div class="field">
+              <label class="field__label" for="b-rib">RIB <span class="field__opt">(facultatif)</span></label>
+              <input class="field__input" id="b-rib" name="rib" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="field admin-reglages__large">
+              <label class="field__label" for="b-reference">Référence que le client indique sur son virement</label>
+              <input class="field__input" id="b-reference" name="reference" autocomplete="off" aria-describedby="eb-reference">
+              <p class="field__error" id="eb-reference"></p>
+            </div>
+          </form>
+
+          <div class="admin-reglages__actions">
+            <button type="button" class="btn btn-gold btn-md" data-action="banque-enregistrer" id="banqueEnregistrer">Enregistrer</button>
+            <span class="admin-reglages__etat" id="banqueEtat" role="status"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- Demandes ---------- -->
+      <section class="admin-section" data-section="demandes">
       <div class="admin-filters" id="adminFilters" role="group" aria-label="Filtrer les demandes">
         <button type="button" class="admin-filter" data-filter="all" aria-pressed="true">Toutes (0)</button>
         <button type="button" class="admin-filter" data-filter="pending" aria-pressed="false">En attente (0)</button>
@@ -638,6 +691,8 @@
       <p class="form-error" id="adminListError" role="alert"></p>
       <p class="admin-empty" id="adminEmpty" hidden>Aucune demande dans cette catégorie pour le moment.</p>
       <div class="admin-list" id="adminList"></div>
+      </section>
+
     </div>
   </div>
 </div>
@@ -730,6 +785,13 @@
               <p class="field__error" id="e-pays"></p>
             </div>
             <div class="field">
+              <label class="field__label" for="f-neph">Numéro NEPH <span class="field__opt">(facultatif)</span></label>
+              <input class="field__input" id="f-neph" name="neph" autocomplete="off"
+                     inputmode="numeric" placeholder="12 caractères" aria-describedby="e-neph aide-neph">
+              <p class="field__aide" id="aide-neph">Laissez vide si vous n'en avez pas encore : il vous sera attribué lors de votre première inscription en préfecture.</p>
+              <p class="field__error" id="e-neph"></p>
+            </div>
+            <div class="field">
               <label class="field__label" for="f-situation">Votre situation <span class="field__opt">(facultatif)</span></label>
               <select class="field__input" id="f-situation" name="situation">
                 <option value="">— Sélectionner —</option>
@@ -739,6 +801,24 @@
                 <option>Annulation / récupération de permis</option>
               </select>
             </div>
+          </div>
+
+          <div class="photo-champ">
+            <p class="field__label" id="photo-label">Photo d'identité <span class="field__opt">(obligatoire)</span></p>
+            <p class="field__aide">Format identité, de face, tête nue et fond clair — une photo de cabine convient.
+              Vous pouvez aussi photographier une photo papier avec votre téléphone. JPEG ou PNG, 5 Mo maximum.</p>
+            <div class="photo-champ__ligne">
+              <span class="photo-apercu" id="photoApercu" hidden>
+                <img id="photoImage" alt="Aperçu de la photo que vous avez choisie">
+              </span>
+              <label class="proof-field" data-photo-field>
+                <span id="photoBouton">Choisir ma photo</span>
+                <input type="file" accept="image/jpeg,image/png,image/webp,image/heic"
+                       id="f-photo" aria-labelledby="photo-label">
+              </label>
+              <button type="button" class="btn-link" id="photoRetirer" hidden data-action="photo-retirer">Retirer</button>
+            </div>
+            <p class="field__error" id="e-photo"></p>
           </div>
         </form>
 
@@ -762,6 +842,8 @@
               <div><dt>Adresse</dt><dd data-bind="rAdresse">—</dd></div>
               <div><dt>Téléphone</dt><dd data-bind="rTel">—</dd></div>
               <div><dt>E-mail</dt><dd data-bind="rEmail">—</dd></div>
+              <div><dt>NEPH</dt><dd data-bind="rNeph">—</dd></div>
+              <div><dt>Photo d'identité</dt><dd data-bind="rPhoto">—</dd></div>
             </dl>
           </div>
           <div class="panel">
@@ -903,7 +985,6 @@
   </div>
 </div>
 
-<script src="coordonnees-bancaires.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>

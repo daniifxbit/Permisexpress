@@ -41,6 +41,12 @@ create table if not exists public.dossiers (
   preuve_nom      text,                          -- nom du fichier d'origine
   preuve_type     text,                          -- type MIME
 
+  -- Pièces du dossier
+  neph            text,                          -- n° d'enregistrement préfectoral
+  photo_chemin    text,                          -- chemin dans le bucket « photos »
+  photo_nom       text,
+  photo_type      text,
+
   -- Décision de l'administrateur
   statut          text not null default 'pending'
                   check (statut in ('pending', 'approved', 'rejected')),
@@ -57,7 +63,19 @@ create index if not exists dossiers_suivi_idx   on public.dossiers (numero, lowe
 
 
 -- ---------------------------------------------------------------------------
--- 2. Limitation des tentatives de connexion administrateur
+-- 2. Paramètres modifiables depuis l'espace administrateur
+--    (coordonnées bancaires, sans passer par le code)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.parametres (
+  cle     text primary key,
+  valeur  jsonb not null,
+  maj_le  timestamptz not null default now()
+);
+
+
+-- ---------------------------------------------------------------------------
+-- 3. Limitation des tentatives de connexion administrateur
 -- ---------------------------------------------------------------------------
 
 create table if not exists public.admin_tentatives (
@@ -69,7 +87,7 @@ create table if not exists public.admin_tentatives (
 
 
 -- ---------------------------------------------------------------------------
--- 3. Verrouillage des accès
+-- 4. Verrouillage des accès
 --
 -- RLS activé SANS aucune policy : ni la clé `anon` ni la clé publique ne
 -- peuvent lire ou écrire quoi que ce soit. Seules les fonctions serverless,
@@ -77,15 +95,17 @@ create table if not exists public.admin_tentatives (
 -- jamais le serveur.
 -- ---------------------------------------------------------------------------
 
-alter table public.dossiers        enable row level security;
+alter table public.dossiers         enable row level security;
+alter table public.parametres       enable row level security;
 alter table public.admin_tentatives enable row level security;
 
 revoke all on public.dossiers         from anon, authenticated;
+revoke all on public.parametres       from anon, authenticated;
 revoke all on public.admin_tentatives from anon, authenticated;
 
 
 -- ---------------------------------------------------------------------------
--- 4. Bucket de stockage des preuves de paiement
+-- 5. Bucket de stockage des preuves de paiement
 --
 -- Privé : aucun fichier n'est accessible par URL publique. Les téléversements
 -- passent par une URL signée à usage unique, générée par l'API ; la lecture
@@ -102,12 +122,25 @@ on conflict (id) do update
       file_size_limit    = excluded.file_size_limit,
       allowed_mime_types = excluded.allowed_mime_types;
 
+-- Photos d'identité : bucket distinct, privé lui aussi. Une photo de personne
+-- est une donnée personnelle et ne doit avoir aucune URL publique.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'photos', 'photos', false, 5242880,           -- 5 Mo
+  array['image/jpeg', 'image/png', 'image/webp', 'image/heic']
+)
+on conflict (id) do update
+  set public             = false,
+      file_size_limit    = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
 
 -- ---------------------------------------------------------------------------
--- 5. Vérification
+-- 6. Vérification
 -- ---------------------------------------------------------------------------
 
 select
   (select count(*) from public.dossiers)                          as dossiers,
   (select count(*) from storage.buckets where id = 'preuves')     as bucket_preuves,
+  (select count(*) from storage.buckets where id = 'photos')      as bucket_photos,
   (select relrowsecurity from pg_class where relname = 'dossiers') as rls_active;

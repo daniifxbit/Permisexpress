@@ -36,7 +36,8 @@ const MIME = {
 function demarrerFauxSupabase() {
   const dossiers = [];              // lignes de la table « dossiers »
   const tentatives = new Map();     // table « admin_tentatives »
-  const fichiers = new Map();       // bucket « preuves »
+  const parametres = new Map();     // table « parametres »
+  const fichiers = new Map();       // buckets, clés « bucket/chemin »
   const jetonsDepot = new Map();    // URL de téléversement signées
 
   const lire = (req) => new Promise((resoudre) => {
@@ -116,6 +117,19 @@ function demarrerFauxSupabase() {
       }
     }
 
+    /* ---- Table parametres ---- */
+    if (chemin === '/rest/v1/parametres') {
+      if (req.method === 'POST') {
+        const ligne = JSON.parse((await lire(req)).toString('utf8'));
+        parametres.set(ligne.cle, ligne);   // Prefer: resolution=merge-duplicates
+        return envoyerJson(res, 201, []);
+      }
+      if (req.method === 'GET') {
+        const p = parametres.get(eq(params, 'cle'));
+        return envoyerJson(res, 200, p ? [p] : []);
+      }
+    }
+
     /* ---- Table admin_tentatives ---- */
     if (chemin === '/rest/v1/admin_tentatives') {
       if (req.method === 'POST') {
@@ -137,8 +151,9 @@ function demarrerFauxSupabase() {
     /* ---- Storage : demande d'URL de dépôt signée ----
        Le vrai Storage refuse un POST annonçant application/json sans corps :
        on reproduit ce refus, sinon le test laisserait passer l'erreur. */
-    if (req.method === 'POST' && chemin.startsWith('/storage/v1/object/upload/sign/preuves/')) {
-      const cible = chemin.slice('/storage/v1/object/upload/sign/preuves/'.length);
+    const depotSigne = chemin.match(/^\/storage\/v1\/object\/upload\/sign\/([^/]+)\/(.+)$/);
+    if (req.method === 'POST' && depotSigne) {
+      const cible = depotSigne[1] + '/' + depotSigne[2];
       const corps = (await lire(req)).toString('utf8');
       if (String(req.headers['content-type'] || '').includes('application/json') && !corps) {
         return envoyerJson(res, 400, {
@@ -148,13 +163,13 @@ function demarrerFauxSupabase() {
       const jeton = crypto.randomBytes(16).toString('hex');
       jetonsDepot.set(jeton, cible);
       return envoyerJson(res, 200, {
-        url: '/object/upload/sign/preuves/' + cible + '?token=' + jeton
+        url: '/object/upload/sign/' + cible + '?token=' + jeton
       });
     }
 
     /* ---- Storage : dépôt effectif via l'URL signée ---- */
-    if (req.method === 'PUT' && chemin.startsWith('/storage/v1/object/upload/sign/preuves/')) {
-      const cible = chemin.slice('/storage/v1/object/upload/sign/preuves/'.length);
+    if (req.method === 'PUT' && depotSigne) {
+      const cible = depotSigne[1] + '/' + depotSigne[2];
       const jeton = params.get('token');
       if (!jeton || jetonsDepot.get(jeton) !== cible) {
         return envoyerJson(res, 401, { message: 'jeton invalide' });
@@ -164,12 +179,13 @@ function demarrerFauxSupabase() {
         octets: await lire(req),
         type: req.headers['content-type'] || 'application/octet-stream'
       });
-      return envoyerJson(res, 200, { Key: 'preuves/' + cible });
+      return envoyerJson(res, 200, { Key: cible });
     }
 
     /* ---- Storage : lecture (bucket privé, en-tête d'autorisation) ---- */
-    if (req.method === 'GET' && chemin.startsWith('/storage/v1/object/preuves/')) {
-      const cible = chemin.slice('/storage/v1/object/preuves/'.length);
+    const lecture = chemin.match(/^\/storage\/v1\/object\/([^/]+)\/(.+)$/);
+    if (req.method === 'GET' && lecture) {
+      const cible = lecture[1] + '/' + lecture[2];
       const f = fichiers.get(cible);
       if (!f) return envoyerJson(res, 404, { message: 'not found' });
       res.writeHead(200, { 'Content-Type': f.type, 'Content-Length': f.octets.length });
@@ -177,16 +193,17 @@ function demarrerFauxSupabase() {
     }
 
     /* ---- Storage : suppression par lot, chemins dans le corps ---- */
-    if (req.method === 'DELETE' && chemin === '/storage/v1/object/preuves') {
+    const suppression = chemin.match(/^\/storage\/v1\/object\/([^/]+)$/);
+    if (req.method === 'DELETE' && suppression) {
       const { prefixes } = JSON.parse((await lire(req)).toString('utf8') || '{}');
-      const supprimes = (prefixes || []).filter((p) => fichiers.delete(p));
+      const supprimes = (prefixes || []).filter((p) => fichiers.delete(suppression[1] + '/' + p));
       return envoyerJson(res, 200, supprimes.map((p) => ({ name: p })));
     }
 
     envoyerJson(res, 404, { message: 'route inconnue du faux Supabase : ' + req.method + ' ' + chemin });
   });
 
-  return { serveur, dossiers, fichiers };
+  return { serveur, dossiers, fichiers, parametres };
 }
 
 /* ==========================================================================
@@ -218,7 +235,7 @@ const ROUTES = {
   '/api/dossiers': () => import('../api/dossiers.js'),
   '/api/suivi': () => import('../api/suivi.js'),
   '/api/admin/login': () => import('../api/admin/login.js'),
-  '/api/admin/logout': () => import('../api/admin/logout.js'),
+  '/api/admin/parametres': () => import('../api/admin/parametres.js'),
   '/api/admin/session': () => import('../api/admin/session.js'),
   '/api/admin/dossiers': () => import('../api/admin/dossiers.js'),
   '/api/admin/decision': () => import('../api/admin/decision.js'),
@@ -277,6 +294,7 @@ export async function demarrer(options = {}) {
     codeAdmin,
     dossiers: faux.dossiers,
     fichiers: faux.fichiers,
+    parametres: faux.parametres,
     async arreter() {
       await new Promise((r) => site.close(r));
       await new Promise((r) => faux.serveur.close(r));

@@ -15,7 +15,9 @@ suivi de dossier, avis clients, FAQ, pied de page.
 **Parcours d'inscription intégré**, en surcouche plein écran :
 
 1. choix du permis ;
-2. informations personnelles, avec validation ;
+2. informations personnelles, avec validation — dont une **photo d'identité**
+   (obligatoire) et le **numéro NEPH** (facultatif : un candidat qui passe son
+   premier permis n'en a pas encore) ;
 3. récapitulatif à vérifier avant tout paiement ;
 4. paiement par virement bancaire, avec **preuve de paiement obligatoire** ;
 5. confirmation : numéro de dossier, statut, prochaines étapes et facture
@@ -26,12 +28,16 @@ e-mail de sa demande**, puis consulte le statut de son paiement et le message
 rédigé par l'équipe. Si sa preuve a été rejetée, un bouton le ramène
 directement à l'étape paiement pour en renvoyer une nouvelle.
 
-**Espace administrateur** (lien en bas de page) — liste des demandes,
-coordonnées du client, aperçu de la preuve (image affichée, PDF lisible dans un
-lecteur intégré, téléchargement), filtres par statut, et validation ou rejet
-avec un message transmis au client. Le message est **obligatoire pour rejeter**.
-Après décision, le dossier est verrouillé jusqu'à ce que le client renvoie une
-nouvelle preuve ; la décision précédente est archivée dans un historique.
+**Espace administrateur** (lien en bas de page), deux onglets :
+
+- **Demandes** — liste des dossiers, coordonnées du client, photo d'identité,
+  numéro NEPH, aperçu de la preuve (image affichée, PDF lisible dans un lecteur
+  intégré, téléchargement), filtres par statut, et validation ou rejet avec un
+  message transmis au client. Le message est **obligatoire pour rejeter**.
+  Après décision, le dossier est verrouillé jusqu'à ce que le client renvoie une
+  nouvelle preuve ; la décision précédente est archivée dans un historique.
+- **Réglages** — le compte qui reçoit les virements (titulaire, IBAN, BIC, RIB,
+  référence à indiquer), modifiable depuis le navigateur, sans toucher au code.
 
 Le site ne prétend jamais qu'un paiement a été encaissé. Il distingue trois
 états : *paiement à effectuer*, *paiement en attente de vérification* et
@@ -41,7 +47,6 @@ Le site ne prétend jamais qu'un paiement a été encaissé. Il distingue trois
 
 ```
 index.html               Page complète (vitrine + surcouches)
-coordonnees-bancaires.js Compte qui reçoit les virements — voir ci-dessous
 styles.css               Feuille de styles unique
 app.js                   Logique de la page — ne contient aucun secret
 assets/                  Logo, icônes, polices auto-hébergées
@@ -49,26 +54,34 @@ assets/                  Logo, icônes, polices auto-hébergées
 api/                     Fonctions serverless (Node, sans dépendance)
   _lib/
     catalogue.js         Formations et prix — source de vérité
+    parametres.js        Compte bancaire : valeur par défaut, lecture, contrôle
+    validation.js        Clés de contrôle : IBAN, BIC, NEPH
     supabase.js          Accès base et stockage via l'API REST
     auth.js              Empreinte du code admin, cookies de session, jetons
     http.js              Utilitaires de requête et de réponse
-  catalogue.js           GET  — formations et moyens de paiement
+  catalogue.js           GET  — formations, moyens de paiement, coordonnées
   diagnostic.js          GET  — page de contrôle de la configuration
-  preuve-url.js          POST — URL de dépôt signée pour la preuve
+  preuve-url.js          POST — URL de dépôt signée (preuve ou photo)
   dossiers.js            POST — création d'une demande / renvoi de preuve
   suivi.js               POST — consultation par le client (numéro + e-mail)
   admin/
     login.js             POST — connexion (empreinte scrypt + session)
-    logout.js            POST
-    session.js           GET  — session en cours ?
+    session.js           GET  — session en cours ?  DELETE — déconnexion
     dossiers.js          GET  — liste des demandes
     decision.js          POST — validation / rejet
-    preuve.js            GET  — sert le fichier de preuve
+    preuve.js            GET  — sert la preuve ou la photo (?piece=)
+    parametres.js        GET / POST — coordonnées bancaires
 
-supabase/schema.sql      Tables, index, RLS et bucket — à exécuter une fois
+supabase/
+  schema.sql             Installation neuve : tables, index, RLS, buckets
+  2026-08-parametres-et-photos.sql   Mise à jour d'une base déjà installée
 scripts/                 Outils : code admin, vérifications
 qa/                      Suite de tests de bout en bout
 ```
+
+Onze fonctions serverless : l'offre gratuite de Vercel en autorise douze. C'est
+pourquoi la déconnexion est un `DELETE` sur `admin/session` plutôt qu'un
+fichier séparé.
 
 Les polices sont **auto-hébergées** : la page n'émet aucune requête vers un
 domaine tiers. C'est plus rapide, et cela évite de transmettre l'adresse IP des
@@ -85,8 +98,14 @@ suffit largement : 500 Mo de base, 1 Go de fichiers). Choisir une région
 européenne — les dossiers contiennent des données personnelles.
 
 Puis **SQL Editor → New query**, coller le contenu de `supabase/schema.sql` et
-l'exécuter. Cela crée les tables, active le verrouillage des accès et crée le
-bucket privé `preuves`.
+l'exécuter. Cela crée les tables, active le verrouillage des accès et crée les
+buckets privés `preuves` et `photos`.
+
+> **Base déjà installée avant août 2026 ?** Exécuter dans le même éditeur
+> `supabase/2026-08-parametres-et-photos.sql` : il ajoute la table des
+> réglages, les colonnes NEPH et photo, et le bucket `photos`. Le script peut
+> être relancé sans dommage, et ne touche à aucune donnée existante. Tant
+> qu'il n'est pas passé, l'onglet **Réglages** et le dépôt de photo échouent.
 
 ### 2. Générer le code d'accès administrateur
 
@@ -132,43 +151,28 @@ Depuis un terminal, l'équivalent plus détaillé :
 SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run verifier
 ```
 
-### 5. Compléter les informations commerciales
-
-En haut de `app.js`, dans l'objet `SITE` :
-
-| Élément | Où | Statut |
-|---|---|---|
-| Coordonnées bancaires | `coordonnees-bancaires.js` | renseignées |
-
 ### Changer les coordonnées bancaires
 
-Tout est dans **`coordonnees-bancaires.js`**, à la racine du dépôt : une
-douzaine de lignes, isolées exprès du reste du code pour pouvoir être modifiées
-sans risque et sans outil.
+Depuis le site lui-même, sans toucher au code : **espace administrateur →
+onglet Réglages**. Modifier le titulaire, l'IBAN, le BIC, le RIB ou la
+référence, puis *Enregistrer*. Le changement est immédiat pour les clients
+suivants — aucun redéploiement n'est nécessaire.
 
-Depuis GitHub, sans rien installer :
+Trois garde-fous rendent l'opération sûre :
 
-1. ouvrir le dépôt, cliquer sur `coordonnees-bancaires.js` ;
-2. cliquer sur l'icône crayon (**Edit this file**) ;
-3. modifier ce qui est **entre les guillemets**, sans toucher aux guillemets,
-   aux virgules ni aux accolades ;
-4. cliquer **Commit changes**, puis à nouveau **Commit changes** ;
-5. attendre une minute : Vercel redéploie tout seul.
+- **L'IBAN et le BIC sont vérifiés avant l'enregistrement**, par le serveur et
+  non seulement par le navigateur : clé de contrôle mod 97 pour l'IBAN, format
+  SWIFT pour le BIC. Une saisie fautive est refusée, et l'ancien compte reste
+  en place.
+- **Si l'enregistrement échoue ou si la base est injoignable**, le site retombe
+  sur les coordonnées inscrites dans `api/_lib/parametres.js` — il n'affiche
+  jamais un panneau de virement vide ou incomplet.
+- **Si les coordonnées affichées ne passent pas le contrôle d'IBAN**, la page
+  n'affiche **aucun** compte et invite le client à téléphoner : un paiement
+  retardé vaut mieux qu'un virement envoyé sur un compte inexistant.
 
-Deux garde-fous rendent l'opération sûre :
-
-- **L'IBAN est vérifié au chargement** par sa clé de contrôle, qui détecte
-  quasiment toute faute de frappe. S'il ne passe pas, le site n'affiche
-  **aucune** coordonnée et invite le client à téléphoner — un paiement retardé
-  vaut mieux qu'un virement envoyé sur un compte inexistant. Un avertissement
-  est écrit en console.
-- **Une erreur de syntaxe dans le fichier ne casse pas le site.** Le navigateur
-  ignore alors le fichier, `app.js` s'en aperçoit et la page continue de
-  fonctionner ; seul le panneau de virement affiche le message ci-dessus.
-
-Après modification, ouvrir la page, cliquer *Commencer ma demande* et aller
-jusqu'à l'étape de paiement : si les nouvelles coordonnées s'affichent, c'est
-bon. Sinon, le message renvoyant au téléphone signale une faute de frappe.
+Pour vérifier : cliquer *Commencer ma demande* et aller jusqu'à l'étape de
+paiement ; les nouvelles coordonnées doivent s'y afficher.
 
 ### Mentions de la facture
 
@@ -190,11 +194,14 @@ inexact.
 
 ### Référence de virement
 
-`SITE.referenceVirement` est le libellé que le client reporte sur son virement.
-Il est identique pour tous : le rapprochement d'un virement avec un dossier
-repose sur la preuve de paiement jointe, pas sur le libellé bancaire.
+La référence est le libellé que le client reporte sur son virement. Elle se
+modifie dans l'onglet **Réglages**, à côté des coordonnées. Elle est identique
+pour tous : le rapprochement d'un virement avec un dossier repose sur la preuve
+de paiement jointe, pas sur le libellé bancaire.
 
-Également dans `index.html` : remplacer `https://exemple.fr` par le domaine
+### Divers
+
+Dans `index.html` : remplacer `https://exemple.fr` par le domaine
 réel dans les balises `canonical`, `og:url` et `og:image`.
 
 Deux interrupteurs d'affichage, toujours dans `SITE` :
@@ -216,9 +223,15 @@ Deux interrupteurs d'affichage, toujours dans `SITE` :
   connexion quinze minutes.
 - **Base verrouillée** — RLS activé sans aucune policy : seules les fonctions
   serverless, qui utilisent la clé `service_role`, accèdent aux données.
-- **Preuves dans un bucket privé** — aucun fichier n'a d'URL publique. Le dépôt
-  passe par une URL signée à usage unique dont le chemin est choisi par le
-  serveur ; la lecture passe par `/api/admin/preuve`, derrière la session.
+- **Preuves et photos dans des buckets privés** — aucun fichier n'a d'URL
+  publique. Le dépôt passe par une URL signée à usage unique dont le chemin est
+  choisi par le serveur ; la lecture passe par `/api/admin/preuve`, derrière la
+  session. Le jeton remis au navigateur scelle le bucket autant que le chemin :
+  une photo ne peut pas être présentée comme une preuve de paiement, ni
+  l'inverse.
+- **Les coordonnées bancaires sont revérifiées par le serveur** avant d'être
+  enregistrées, et l'onglet Réglages est derrière la même session que le reste
+  de l'espace administrateur.
 - **Le suivi client exige numéro + e-mail.** Le numéro seul ne suffit pas :
   sinon, essayer des numéros au hasard révélerait le nom et le montant d'autres
   clients. La réponse est la même que le dossier n'existe pas ou que l'e-mail ne
@@ -246,7 +259,7 @@ d'environnement, redéployez : Vercel ne les recharge qu'au déploiement suivant
   dans `index.html` ; la colonne `reference_wu` et l'affichage du MTCN côté
   administrateur sont conservés pour les dossiers déjà enregistrés.
 - **Pas de purge automatique.** Un client qui abandonne après avoir déposé sa
-  preuve, sans valider, laisse un fichier orphelin dans le bucket. Sans
+  photo ou sa preuve, sans valider, laisse un fichier orphelin. Sans
   conséquence fonctionnelle, mais un nettoyage périodique serait utile.
 - **Un seul compte administrateur**, sans traçabilité des décisions par
   utilisateur. Suffisant pour une équipe réduite ; à faire évoluer au-delà.
@@ -270,10 +283,11 @@ d'essai des tests (ci-dessous) ou `vercel dev`.
 `qa/parcours.mjs` démarre `qa/serveur-test.mjs` — le site, les **vraies**
 fonctions serverless, et un faux Supabase qui rejoue la portion de son API REST
 que le code utilise — puis déroule le parcours complet dans un navigateur :
-119 assertions couvrant la vitrine, la validation, les trois moyens de
-paiement, la preuve obligatoire, l'espace administrateur, le suivi, le renvoi
-de preuve, les contrôles d'accès de l'API, l'accessibilité clavier, le rendu
-mobile/tablette/bureau et le repli si l'API est injoignable.
+199 assertions couvrant la vitrine, la validation, la photo d'identité et le
+NEPH, le virement, la preuve obligatoire, l'espace administrateur, l'onglet
+Réglages, le suivi, le renvoi de preuve, les contrôles d'accès de l'API,
+l'accessibilité clavier, le rendu mobile/tablette/bureau, le repli sur un IBAN
+invalide et celui si l'API est injoignable.
 
 ```sh
 npm install --no-save playwright && npx playwright install chromium

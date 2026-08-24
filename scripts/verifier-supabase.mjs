@@ -11,7 +11,7 @@ import crypto from 'node:crypto';
 import {
   insererDossier, lireDossier, majDossier, listerDossiers, compterParStatut,
   lireTentatives, ecrireTentatives,
-  urlTeleversementSignee, telechargerPreuve, supprimerPreuve
+  urlTeleversementSignee, telechargerFichier, supprimerFichier, BUCKET_PREUVES
 } from '../api/_lib/supabase.js';
 
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -82,7 +82,7 @@ await etape('table admin_tentatives accessible', async () => {
 
 let urlDepot = null;
 await etape('URL de téléversement signée', async () => {
-  urlDepot = await urlTeleversementSignee(chemin);
+  urlDepot = await urlTeleversementSignee(BUCKET_PREUVES, chemin);
   return urlDepot.split('?')[0].split('/storage/v1')[1];
 });
 
@@ -98,7 +98,7 @@ await etape('dépôt du fichier via l\'URL signée', async () => {
 });
 
 await etape('lecture du fichier depuis le bucket privé', async () => {
-  const f = await telechargerPreuve(chemin);
+  const f = await telechargerFichier(BUCKET_PREUVES, chemin);
   if (!f) throw new Error('fichier introuvable');
   if (f.octets.toString() !== contenu.toString()) throw new Error('contenu différent');
   return f.octets.length + ' octets relus';
@@ -108,8 +108,8 @@ await etape('lecture du fichier depuis le bucket privé', async () => {
 console.log('\nNettoyage\n');
 
 await etape('suppression du fichier de test', async () => {
-  await supprimerPreuve(chemin);
-  const f = await telechargerPreuve(chemin);
+  await supprimerFichier(BUCKET_PREUVES, chemin);
+  const f = await telechargerFichier(BUCKET_PREUVES, chemin);
   if (f) throw new Error('le fichier existe encore');
   return 'supprimé';
 });

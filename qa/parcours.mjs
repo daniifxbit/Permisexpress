@@ -8,7 +8,7 @@
 
 import { chromium, request } from 'playwright';
 import { demarrer } from './serveur-test.mjs';
-import { normaliserBase, supprimerPreuve } from '../api/_lib/supabase.js';
+import { normaliserBase, supprimerFichier, BUCKET_PREUVES } from '../api/_lib/supabase.js';
 import fs from 'node:fs';
 
 const banc = await demarrer();
@@ -16,6 +16,23 @@ const BASE = banc.origine;
 
 const resultats = [];
 const ok = (nom, condition, extra = '') => resultats.push({ nom, pass: !!condition, extra });
+
+/* Un plantage en cours de route ne doit pas emporter les résultats déjà
+   collectés : sans eux, on ignore jusqu'où la suite était allée. */
+function rendreCompte(erreur) {
+  const echecs = resultats.filter((r) => !r.pass);
+  resultats.forEach((r) =>
+    console.log((r.pass ? '  ok   ' : '  ÉCHEC ') + r.nom + (r.extra ? '  → ' + r.extra : '')));
+  if (erreur) {
+    console.log('\n  INTERROMPU après ' + resultats.length + ' vérifications');
+    String(erreur && erreur.message).split('\n').slice(0, 3).forEach((l) => console.log('  ' + l));
+    // Playwright range le sélecteur visé dans `log` : c'est lui qui situe l'échec.
+    if (erreur && erreur.log) console.log('  ' + erreur.log[0]);
+    return 1;
+  }
+  console.log('\n' + (resultats.length - echecs.length) + '/' + resultats.length + ' tests réussis');
+  return echecs.length ? 1 : 0;
+}
 
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>');
 const PNG = Buffer.from(
@@ -31,7 +48,7 @@ const page = await contexte.newPage();
 /* Deux appels échouent volontairement pendant les tests (mauvaise adresse
    e-mail, mauvais code d'accès) : le navigateur les journalise comme erreurs
    alors que la page les gère correctement. On les distingue des vraies. */
-const ECHECS_ATTENDUS = ['/api/suivi', '/api/admin/login'];
+const ECHECS_ATTENDUS = ['/api/suivi', '/api/admin/login', '/api/admin/parametres'];
 
 const erreurs = [];
 const ressourcesEnEchec = [];
@@ -54,6 +71,22 @@ const listeAdminPrete = () => page.waitForFunction(() => {
   const vide = document.querySelector('#adminEmpty');
   return vide && !vide.textContent.includes('Chargement');
 });
+
+try {
+
+/* Remplit l'étape « Vos informations » — photo comprise, désormais obligatoire. */
+async function remplirEtapeDeux(cible, { permis = 'B', nom = 'Durand' } = {}) {
+  await cible.locator('.card-tarif[data-permit="' + permis + '"] [data-action="choose"]').click();
+  await cible.fill('#f-prenom', 'Chloé');
+  await cible.fill('#f-nom', nom);
+  await cible.fill('#f-naissance', '2000-04-12');
+  await cible.fill('#f-tel', '0612345678');
+  await cible.fill('#f-email', 'chloe@exemple.fr');
+  await cible.fill('#f-ville', 'Paris');
+  await cible.fill('#f-adresse', '12 rue de Rivoli');
+  await cible.locator('#f-photo').setInputFiles({ name: 'photo.png', mimeType: 'image/png', buffer: PNG });
+  await cible.locator('[data-action="submit-info"]').click();
+}
 
 await page.goto(BASE + '/', { waitUntil: 'networkidle' });
 
@@ -104,12 +137,26 @@ ok('e-mail invalide détecté', (await page.locator('#e-email').textContent()).i
 await page.fill('#f-tel', '0612345678');
 await page.fill('#f-email', 'chloe@exemple.fr');
 await page.locator('[data-action="submit-info"]').click();
+ok('photo d\'identité exigée', (await page.locator('#e-photo').textContent()).includes('requise'));
+ok('bloqué à l\'étape 2 sans photo', await page.locator('.funnel-step[data-step="2"]').isVisible());
+
+await page.fill('#f-neph', '12345');
+await page.locator('#f-photo').setInputFiles({ name: 'photo.png', mimeType: 'image/png', buffer: PNG });
+ok('aperçu de la photo affiché', await page.locator('#photoApercu').isVisible());
+ok('nom du fichier repris', (await page.locator('#photoBouton').textContent()) === 'photo.png');
+await page.locator('[data-action="submit-info"]').click();
+ok('NEPH trop court refusé', (await page.locator('#e-neph').textContent()).includes('douze'));
+
+await page.fill('#f-neph', '012345678901');
+await page.locator('[data-action="submit-info"]').click();
 ok('passe au récapitulatif', await page.locator('.funnel-step[data-step="3"]').isVisible());
 
 const recap = await page.locator('.funnel-step[data-step="3"]').innerText();
 ok('récap : nom', recap.includes('Durand'));
 ok('récap : adresse', recap.includes('12 rue de Rivoli'));
 ok('récap : prix A2 = 650 €', recap.includes('650 €'));
+ok('récap : NEPH', recap.includes('012345678901'));
+ok('récap : photo', recap.includes('photo.png'));
 
 await page.locator('[data-action="edit-info"]').click();
 ok('valeurs conservées au retour', (await page.inputValue('#f-ville')) === 'Paris');
@@ -182,7 +229,13 @@ ok('dossier en attente', banc.dossiers[0]?.statut === 'pending');
 ok('montant calculé par le serveur', banc.dossiers[0]?.montant === 650);
 ok('moyen enregistré = virement bancaire', banc.dossiers[0]?.moyen_id === 'vir');
 ok('aucune référence de transfert enregistrée', !banc.dossiers[0]?.reference_wu);
-ok('preuve déposée dans le stockage', banc.fichiers.size === 1);
+ok('preuve et photo déposées', banc.fichiers.size === 2);
+ok('photo rangée dans son bucket',
+  [...banc.fichiers.keys()].some((k) => k.startsWith('photos/')));
+ok('preuve rangée dans son bucket',
+  [...banc.fichiers.keys()].some((k) => k.startsWith('preuves/')));
+ok('NEPH enregistré', banc.dossiers[0]?.neph === '012345678901');
+ok('photo référencée sur le dossier', Boolean(banc.dossiers[0]?.photo_chemin));
 /* La facture s'imprime via un iframe caché : son srcdoc est renseigné avant
    insertion, donc lisible dès que l'élément apparaît. */
 await page.locator('[data-action="invoice"]').click();
@@ -245,6 +298,10 @@ const carte = await page.locator('.admin-card').first().innerText();
 ok('admin : client', carte.includes('Chloé Durand'));
 ok('admin : e-mail', carte.includes('chloe@exemple.fr'));
 ok('admin : date de naissance', carte.includes('12/04/2000'));
+ok('admin : NEPH affiché', carte.includes('012345678901'));
+ok('admin : photo affichée', (await page.locator('.admin-photo img').count()) === 1);
+ok('admin : la photo passe par l\'API protégée',
+  (await page.locator('.admin-photo img').getAttribute('src')).includes('piece=photo'));
 ok('admin : aperçu PDF en iframe', (await page.locator('.admin-proof__view iframe').count()) === 1);
 ok('admin : la preuve passe par l\'API protégée',
   (await page.locator('.admin-proof__view iframe').getAttribute('src')).startsWith('/api/admin/preuve?'));
@@ -298,7 +355,8 @@ ok('décision archivée', banc.dossiers[0].historique?.length === 1
   && banc.dossiers[0].historique[0].statut === 'rejected');
 ok('horodatage de renvoi', !!banc.dossiers[0].renvoye_le);
 ok('nouvelle preuve enregistrée', banc.dossiers[0].preuve_nom === 'recu.png');
-ok('ancienne preuve purgée du stockage', banc.fichiers.size === 1);
+ok('ancienne preuve purgée du stockage', banc.fichiers.size === 2);
+ok('photo conservée lors du renvoi', Boolean(banc.dossiers[0]?.photo_chemin));
 
 await page.locator('.overlay__close[data-action="funnel-close"]').click();
 await page.locator('[data-action="admin"]').click();
@@ -368,15 +426,40 @@ const urlPreuve = await (await anonyme.post('/api/preuve-url', {
   data: { nom: 'p.pdf', type: 'application/pdf', taille: 1000 }
 })).json();
 await anonyme.put(urlPreuve.url, { headers: { 'Content-Type': 'application/pdf' }, data: PDF });
+/* Une création exige aussi une photo : on en dépose une. */
+const urlPhoto = await (await anonyme.post('/api/preuve-url', {
+  data: { usage: 'photo', nom: 'p.png', type: 'image/png', taille: 200 }
+})).json();
+await anonyme.put(urlPhoto.url, { headers: { 'Content-Type': 'image/png' }, data: PNG });
+
 const montantForce = await anonyme.post('/api/dossiers', {
   data: {
-    permis_id: 'CODE', montant: 1, moyen_id: 'vir', preuve: urlPreuve.jeton,
+    permis_id: 'CODE', montant: 1, moyen_id: 'vir',
+    preuve: urlPreuve.jeton, photo: urlPhoto.jeton, neph: '012345678901',
     prenom: 'Test', nom: 'Montant', naissance: '1990-01-01', email: 'test@exemple.fr',
     telephone: '0600000000', ville: 'Paris', adresse: 'rue', pays: 'France'
   }
 });
 ok('montant imposé par le serveur, pas par le client',
   (await montantForce.json()).montant === 250);
+
+const urlPhoto2 = await (await anonyme.post('/api/preuve-url', {
+  data: { usage: 'photo', nom: 'p.png', type: 'image/png', taille: 200 }
+})).json();
+await anonyme.put(urlPhoto2.url, { headers: { 'Content-Type': 'image/png' }, data: PNG });
+const photoCommePreuve = await anonyme.post('/api/dossiers', {
+  data: {
+    permis_id: 'B', moyen_id: 'vir', preuve: urlPhoto2.jeton, photo: urlPhoto2.jeton,
+    prenom: 'Test', nom: 'Bucket', naissance: '1990-01-01', email: 't@e.fr',
+    telephone: '0600000000', ville: 'Paris', adresse: 'rue', pays: 'France'
+  }
+});
+ok('une photo ne peut pas tenir lieu de preuve de paiement', photoCommePreuve.status() === 400);
+
+const pdfInterdit = await anonyme.post('/api/preuve-url', {
+  data: { usage: 'photo', nom: 'x.pdf', type: 'application/pdf', taille: 1000 }
+});
+ok('un PDF est refusé comme photo d\'identité', pdfInterdit.status() === 400);
 
 const typeInterdit = await anonyme.post('/api/preuve-url', {
   data: { nom: 'x.exe', type: 'application/x-msdownload', taille: 1000 }
@@ -441,12 +524,16 @@ ok('catalogue reconstruit depuis la page',
 
 /* ---------- 11. Suppression : on se fie à la liste renvoyée ---------- */
 {
-  const restants = [...banc.fichiers.keys()];
+  // Fichier dédié : supprimer la preuve d'un dossier réel la rendrait
+  // introuvable pour l'espace administrateur, testé plus bas.
+  const cible = 'test/a-supprimer.pdf';
+  banc.fichiers.set('preuves/' + cible, { octets: PDF, type: 'application/pdf' });
   const avant = banc.fichiers.size;
-  const reel = await supprimerPreuve(restants[0]);
+
+  const reel = await supprimerFichier(BUCKET_PREUVES, cible);
   ok('suppression : le stockage confirme le fichier retiré', reel.supprimes === 1, JSON.stringify(reel));
   ok('suppression : le fichier a bien disparu', banc.fichiers.size === avant - 1);
-  const absent = await supprimerPreuve('inexistant/nulle-part.pdf');
+  const absent = await supprimerFichier(BUCKET_PREUVES, 'inexistant/nulle-part.pdf');
   ok('suppression d\'un fichier absent : aucune suppression annoncée', absent.supprimes === 0);
 }
 
@@ -502,59 +589,120 @@ ok('catalogue reconstruit depuis la page',
   ok('TVA de format invalide rejetée',      !tvaValide('FR-27-552032534', SIRET_A));
 }
 
-/* ---------- 15. IBAN erroné : rien n'est affiché ----------
-   Un chiffre modifié dans coordonnees-bancaires.js ne doit pas aboutir à un
-   virement envoyé sur un compte inexistant. */
+/* ---------- 14 bis. Réglages : coordonnées bancaires ---------- */
+await page.locator('[data-action="admin"]').click();
+await page.waitForSelector('#adminBody:not([hidden])');
+await page.locator('.admin-onglet[data-onglet="reglages"]').click();
+ok('onglet Réglages accessible', await page.locator('[data-section="reglages"]').isVisible());
+ok('liste des demandes masquée', await page.locator('[data-section="demandes"]').isHidden());
+ok('formulaire prérempli avec l\'IBAN en service',
+  (await page.inputValue('#b-iban')).replace(/\s/g, '') === 'FR7617238000010045678420305');
+
+/* Un IBAN à la clé fausse doit être refusé, et rien ne doit être enregistré. */
+await page.fill('#b-iban', 'FR76 1723 8000 0100 4567 8420 306');
+await page.locator('[data-action="banque-enregistrer"]').click();
+await page.waitForFunction(() => document.querySelector('#eb-iban').textContent.length > 0);
+ok('IBAN invalide refusé à l\'enregistrement',
+  (await page.locator('#eb-iban').textContent()).includes('clé de contrôle'));
+ok('rien n\'est enregistré en base', banc.parametres.size === 0);
+
+/* Un changement valide est accepté et pris en compte côté client. */
+await page.fill('#b-titulaire', 'PERMIS EXPRESS SAS');
+await page.fill('#b-iban', 'FR14 2004 1010 0505 0001 3M02 606');
+await page.fill('#b-bic', 'PSSTFRPPPAR');
+await page.fill('#b-rib', '20041 01005 0500013M026 06');
+await page.fill('#b-reference', 'PE-Inscription');
+await page.locator('[data-action="banque-enregistrer"]').click();
+await page.waitForFunction(() => document.querySelector('#banqueEtat').textContent.includes('enregistrées'));
+ok('nouvelles coordonnées enregistrées', banc.parametres.has('banque'));
+ok('titulaire enregistré',
+  banc.parametres.get('banque').valeur.titulaire === 'PERMIS EXPRESS SAS');
+ok('aucune erreur affichée', (await page.locator('#eb-iban').textContent()) === '');
+
+/* Le site public doit servir les nouvelles coordonnées. */
+const publie = await (await request.newContext({ baseURL: BASE }).then((c) => c.get('/api/catalogue'))).json();
+ok('l\'API sert les nouvelles coordonnées', publie.banque.titulaire === 'PERMIS EXPRESS SAS');
+ok('l\'API sert la nouvelle référence', publie.banque.reference === 'PE-Inscription');
+
+const visiteur = await contexte.newPage();
+await visiteur.goto(BASE + '/', { waitUntil: 'networkidle' });
+await remplirEtapeDeux(visiteur, { permis: 'B', nom: 'Nouveau' });
+await visiteur.locator('[data-action="to-pay"]').click();
+ok('le client voit le nouveau titulaire',
+  (await visiteur.locator('#bankHolder').textContent()) === 'PERMIS EXPRESS SAS');
+ok('le client voit la nouvelle référence',
+  (await visiteur.locator('[data-bind="payRef"]').first().textContent()).trim() === 'PE-Inscription');
+await visiteur.close();
+
+/* Réglages refusés sans session administrateur. */
+{
+  const anon = await request.newContext({ baseURL: BASE });
+  ok('lecture des réglages refusée sans session',
+    (await anon.get('/api/admin/parametres')).status() === 401);
+  ok('écriture des réglages refusée sans session',
+    (await anon.post('/api/admin/parametres', {
+      data: { banque: { titulaire: 'Pirate', iban: 'FR14 2004 1010 0505 0001 3M02 606', reference: 'X' } }
+    })).status() === 401);
+  ok('les coordonnées n\'ont pas changé',
+    banc.parametres.get('banque').valeur.titulaire === 'PERMIS EXPRESS SAS');
+}
+
+await page.locator('[data-action="admin-close"]').click();
+
+/* ---------- 15. IBAN erroné servi par l'API ----------
+   Une faute de frappe saisie dans l'espace administrateur ne doit pas aboutir
+   à un virement envoyé sur un compte inexistant. */
 {
   const fautif = await contexte.newPage();
-  await fautif.route('**/coordonnees-bancaires.js', (route) => route.fulfill({
-    contentType: 'text/javascript',
-    body: "window.COORDONNEES_BANCAIRES = { titulaire: 'DIDIER LEON DELABY',"
-      + " iban: 'FR76 1723 8000 0100 4567 8420 306', bic: 'SCSYFRP2', rib: '', reference: 'PE-Test' };"
-  }));
+  await fautif.route('**/api/catalogue', async (route) => {
+    const vraie = await route.fetch();
+    const donnees = await vraie.json();
+    donnees.banque = Object.assign({}, donnees.banque, {
+      iban: 'FR76 1723 8000 0100 4567 8420 306'   // dernier chiffre modifié
+    });
+    await route.fulfill({ json: donnees });
+  });
   const alertes = [];
   fautif.on('console', (m) => { if (m.type() === 'warning') alertes.push(m.text()); });
   await fautif.goto(BASE + '/', { waitUntil: 'networkidle' });
-  await fautif.locator('.card-tarif[data-permit="B"] [data-action="choose"]').click();
-  await fautif.fill('#f-prenom', 'Test'); await fautif.fill('#f-nom', 'Iban');
-  await fautif.fill('#f-naissance', '1990-01-01'); await fautif.fill('#f-tel', '0600000000');
-  await fautif.fill('#f-email', 'test@exemple.fr'); await fautif.fill('#f-ville', 'Paris');
-  await fautif.fill('#f-adresse', 'rue');
-  await fautif.locator('[data-action="submit-info"]').click();
+  await remplirEtapeDeux(fautif, { permis: 'B', nom: 'Iban' });
   await fautif.locator('[data-action="to-pay"]').click();
 
   ok('IBAN erroné : aucune coordonnée affichée', await fautif.locator('#bankList').isHidden());
   ok('IBAN erroné : dépôt de preuve indisponible', await fautif.locator('#payActions').isHidden());
-  const avis = await fautif.locator('#bankNotice').textContent();
-  ok('IBAN erroné : le client est renvoyé au téléphone', avis.includes('+33 6 76 32 61 99'));
+  ok('IBAN erroné : le client est renvoyé au téléphone',
+    (await fautif.locator('#bankNotice').textContent()).includes('+33 6 76 32 61 99'));
   ok('IBAN erroné : avertissement en console', alertes.some((a) => a.includes('IBAN')));
   ok('IBAN erroné : le reste du site fonctionne',
     (await fautif.locator('#tarifsGrid .card-tarif').count()) === 8);
   await fautif.close();
 }
 
-/* ---------- 16. Fichier de coordonnées cassé : le site tient ---------- */
+/* ---------- 16. API injoignable : aucune coordonnée périmée ---------- */
 {
-  const casse = await contexte.newPage();
-  await casse.route('**/coordonnees-bancaires.js', (route) => route.fulfill({
-    contentType: 'text/javascript', body: 'window.COORDONNEES_BANCAIRES = { titulaire: ;;; }'
-  }));
-  await casse.goto(BASE + '/', { waitUntil: 'networkidle' });
-  ok('fichier de coordonnées invalide : la page se charge',
-    (await casse.locator('#tarifsGrid .card-tarif').count()) === 8);
-  await casse.locator('.card-tarif[data-permit="B"] [data-action="choose"]').click();
-  ok('fichier de coordonnées invalide : le parcours démarre',
-    await casse.locator('.funnel-step[data-step="2"]').isVisible());
-  await casse.close();
+  const horsLigne = await contexte.newPage();
+  await horsLigne.route('**/api/catalogue', (route) => route.abort());
+  await horsLigne.goto(BASE + '/', { waitUntil: 'networkidle' });
+  ok('catalogue injoignable : la page se charge',
+    (await horsLigne.locator('#tarifsGrid .card-tarif').count()) === 8);
+  await remplirEtapeDeux(horsLigne, { permis: 'B', nom: 'HorsLigne' });
+  await horsLigne.locator('[data-action="to-pay"]').click();
+  ok('catalogue injoignable : aucun IBAN affiché', await horsLigne.locator('#bankList').isHidden());
+  ok('catalogue injoignable : message de repli',
+    (await horsLigne.locator('#bankNotice').textContent()).length > 0);
+  await horsLigne.close();
 }
 
 ok('aucune erreur JavaScript', erreurs.length === 0, erreurs.join(' | '));
 ok('aucune ressource en échec', ressourcesEnEchec.length === 0, ressourcesEnEchec.join(' | '));
 
+} catch (e) {
+  await navigateur.close().catch(() => {});
+  await banc.arreter().catch(() => {});
+  process.exit(rendreCompte(e));
+}
+
 await navigateur.close();
 await banc.arreter();
 
-const echecs = resultats.filter((r) => !r.pass);
-resultats.forEach((r) => console.log((r.pass ? '  ok   ' : '  ÉCHEC ') + r.nom + (r.extra ? '  → ' + r.extra : '')));
-console.log('\n' + (resultats.length - echecs.length) + '/' + resultats.length + ' tests réussis');
-process.exit(echecs.length ? 1 : 0);
+process.exit(rendreCompte(null));

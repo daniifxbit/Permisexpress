@@ -12,7 +12,7 @@
 import crypto from 'node:crypto';
 import {
   listerDossiers, lireTentatives,
-  urlTeleversementSignee, telechargerPreuve, supprimerPreuve
+  urlTeleversementSignee, telechargerFichier, supprimerFichier, BUCKET_PREUVES
 } from './_lib/supabase.js';
 import { methodes } from './_lib/http.js';
 
@@ -112,7 +112,7 @@ export default async function handler(req, res) {
     let urlDepot = null;
 
     try {
-      urlDepot = await urlTeleversementSignee(chemin);
+      urlDepot = await urlTeleversementSignee(BUCKET_PREUVES, chemin);
       ajouter('Autorisation de dépôt de fichier', 'ok', 'obtenue', '');
     } catch (e) {
       ajouter('Autorisation de dépôt de fichier', 'ko', expurger(e.message),
@@ -137,7 +137,7 @@ export default async function handler(req, res) {
 
       if (depose) {
         try {
-          const relu = await telechargerPreuve(chemin);
+          const relu = await telechargerFichier(BUCKET_PREUVES, chemin);
           if (!relu) throw new Error('fichier introuvable après dépôt');
           if (relu.octets.toString() !== contenu.toString()) throw new Error('contenu différent');
           ajouter('Relecture du fichier de test', 'ok', 'contenu identique', '');
@@ -150,7 +150,7 @@ export default async function handler(req, res) {
           // On se fie à la liste renvoyée par le stockage, pas à une relecture :
           // les objets sont servis via un cache, une copie pourrait subsister
           // quelques minutes alors que la suppression a bien eu lieu.
-          const { supprimes, statut } = await supprimerPreuve(chemin);
+          const { supprimes, statut } = await supprimerFichier(BUCKET_PREUVES, chemin);
           ajouter('Suppression du fichier de test', supprimes > 0 ? 'ok' : 'ko',
             supprimes > 0
               ? 'nettoyage effectué'

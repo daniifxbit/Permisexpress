@@ -102,9 +102,10 @@ export function exigeSession(req, res) {
 /* --------------------------------------------------------------------------
    Jeton de dépôt de preuve
 
-   Le chemin du fichier est choisi par le serveur puis scellé dans ce jeton.
-   Le navigateur le renvoie tel quel avec le dossier : il ne peut donc pas
-   désigner le fichier d'un autre client ni écrire ailleurs dans le bucket.
+   Le bucket et le chemin du fichier sont choisis par le serveur puis scellés
+   dans ce jeton. Le navigateur le renvoie tel quel avec le dossier : il ne
+   peut donc ni désigner le fichier d'un autre client, ni écrire ailleurs, ni
+   faire passer une photo pour une preuve de paiement.
    -------------------------------------------------------------------------- */
 
 export function signerPreuve(donnees) {
@@ -112,6 +113,7 @@ export function signerPreuve(donnees) {
     chemin: donnees.chemin,
     nom: donnees.nom,
     type: donnees.type,
+    bucket: donnees.bucket,
     expire: Date.now() + DUREE_JETON_PREUVE
   })).toString('base64url');
   return charge + '.' + hmac(charge);

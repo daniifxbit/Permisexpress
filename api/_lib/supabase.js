@@ -95,6 +95,34 @@ export async function compterParStatut() {
 }
 
 /* --------------------------------------------------------------------------
+   Table « parametres » — réglages modifiables sans redéploiement
+   -------------------------------------------------------------------------- */
+
+const PARAMETRES = '/rest/v1/parametres';
+
+export async function lireParametre(cle) {
+  const r = await fetch(
+    base() + PARAMETRES + '?cle=eq.' + encodeURIComponent(cle) + '&limit=1',
+    { headers: entetes() }
+  );
+  if (!r.ok) await echec(r, 'lireParametre');
+  const lignes = await r.json();
+  return lignes[0] ? lignes[0].valeur : null;
+}
+
+export async function ecrireParametre(cle, valeur) {
+  const r = await fetch(base() + PARAMETRES, {
+    method: 'POST',
+    headers: entetes({
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=minimal'
+    }),
+    body: JSON.stringify({ cle, valeur, maj_le: new Date().toISOString() })
+  });
+  if (!r.ok) await echec(r, 'ecrireParametre');
+}
+
+/* --------------------------------------------------------------------------
    Limitation des tentatives de connexion
    -------------------------------------------------------------------------- */
 
@@ -126,15 +154,19 @@ export async function ecrireTentatives(ligne) {
    Stockage des preuves (bucket privé « preuves »)
    -------------------------------------------------------------------------- */
 
-const BUCKET = 'preuves';
+/* Deux buckets privés : les preuves de paiement et les photos d'identité.
+   Séparés parce qu'ils n'ont ni les mêmes formats acceptés, ni la même durée
+   d'utilité — et qu'une photo de personne mérite son propre compartiment. */
+export const BUCKET_PREUVES = 'preuves';
+export const BUCKET_PHOTOS = 'photos';
 
 /* URL de téléversement signée, à usage unique, pour un chemin imposé par le
    serveur. Le navigateur y dépose le fichier directement : les octets ne
    transitent pas par la fonction serverless, ce qui évite la limite de
    4,5 Mo sur le corps des requêtes Vercel. */
-export async function urlTeleversementSignee(chemin) {
+export async function urlTeleversementSignee(bucket, chemin) {
   const r = await fetch(
-    base() + '/storage/v1/object/upload/sign/' + BUCKET + '/' + chemin,
+    base() + '/storage/v1/object/upload/sign/' + bucket + '/' + chemin,
     {
       method: 'POST',
       headers: entetes({ 'Content-Type': 'application/json' }),
@@ -148,12 +180,12 @@ export async function urlTeleversementSignee(chemin) {
   return base() + '/storage/v1' + url;
 }
 
-export async function telechargerPreuve(chemin) {
-  const r = await fetch(base() + '/storage/v1/object/' + BUCKET + '/' + chemin, {
+export async function telechargerFichier(bucket, chemin) {
+  const r = await fetch(base() + '/storage/v1/object/' + bucket + '/' + chemin, {
     headers: entetes()
   });
   if (r.status === 404 || r.status === 400) return null;
-  if (!r.ok) await echec(r, 'telechargerPreuve');
+  if (!r.ok) await echec(r, 'telechargerFichier');
   return {
     octets: Buffer.from(await r.arrayBuffer()),
     type: r.headers.get('content-type') || 'application/octet-stream'
@@ -166,15 +198,15 @@ export async function telechargerPreuve(chemin) {
    fichier ensuite ne prouve rien, le stockage servant les objets via un cache.
 
    Renvoie { supprimes, statut } pour que le diagnostic puisse en rendre compte. */
-export async function supprimerPreuve(chemin) {
-  const r = await fetch(base() + '/storage/v1/object/' + BUCKET, {
+export async function supprimerFichier(bucket, chemin) {
+  const r = await fetch(base() + '/storage/v1/object/' + bucket, {
     method: 'DELETE',
     headers: entetes({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ prefixes: [chemin] })
   });
   // 404 : le fichier n'existe plus, le résultat voulu est déjà atteint.
   if (r.status === 404) return { supprimes: 0, statut: 404 };
-  if (!r.ok) await echec(r, 'supprimerPreuve');
+  if (!r.ok) await echec(r, 'supprimerFichier');
 
   let liste = [];
   try { liste = await r.json(); } catch { /* réponse sans corps */ }

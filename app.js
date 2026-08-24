@@ -22,14 +22,10 @@
     promoBar: true,
     gallery: false, // passer à true une fois de vraies photos ajoutées
 
-    /* Coordonnées bancaires : elles vivent dans coordonnees-bancaires.js, un
-       fichier volontairement minuscule pour pouvoir être modifié sans risque.
-       Si ce fichier est absent ou comporte une erreur de syntaxe, le
-       navigateur ne définit pas la variable et l'on retombe ici — le site
-       continue de fonctionner au lieu de s'interrompre. */
-    bank: window.COORDONNEES_BANCAIRES || {
-      titulaire: '', iban: '', bic: '', rib: '', reference: 'PE-Paiement complet service'
-    },
+    /* Coordonnées bancaires : renseignées par /api/catalogue, lui-même alimenté
+       par l'espace administrateur. Vides tant que la réponse n'est pas arrivée —
+       on préfère ne rien montrer qu'un IBAN dont on ignore s'il est à jour. */
+    bank: { titulaire: '', iban: '', bic: '', rib: '', reference: '' },
 
     /* Contact affiché sur la facture */
     contact: {
@@ -94,7 +90,10 @@
         return { id: p.id, cat: p.cat, name: p.nom, desc: p.desc, price: p.prix };
       });
       METHODS = d.moyens.map(function (m) { return { id: m.id, name: m.nom }; });
+      if (d.banque) SITE.bank = d.banque;
     }).catch(function () {
+      // Repli : les tarifs sont dans la page, mais pas les coordonnées
+      // bancaires — le panneau de virement renverra vers le téléphone.
       PERMITS = catalogueDepuisDom();
       METHODS = moyensDepuisDom();
     });
@@ -116,6 +115,7 @@
     method: null,          // id de METHODS
     declared: false,       // le client a déclaré avoir effectué le paiement
     proof: { file: null, name: '' },
+    photo: { file: null, name: '', apercu: '' },
     envoiEnCours: false,
 
     // Renseignés par le serveur à la confirmation
@@ -130,6 +130,7 @@
     adminAuth: false,
     adminChargement: false,
     adminFilter: 'all',
+    adminOnglet: 'demandes',
     adminMsg: {},          // numéro -> message en cours de saisie
 
     trackFound: null
@@ -137,7 +138,7 @@
 
   var form = {
     prenom: '', nom: '', naissance: '', tel: '', email: '',
-    ville: '', adresse: '', pays: 'France', situation: ''
+    ville: '', adresse: '', pays: 'France', neph: '', situation: ''
   };
 
   /* ========================================================================
@@ -220,6 +221,12 @@
   /* Coordonnées exploitables : un titulaire et un IBAN qui passe sa clé. */
   function banqueUtilisable() {
     return Boolean(String(SITE.bank.titulaire || '').trim()) && ibanValide(SITE.bank.iban);
+  }
+
+  /* NEPH — numéro d'enregistrement préfectoral harmonisé : douze caractères.
+     Le contrôle définitif est côté serveur ; celui-ci sert au retour immédiat. */
+  function nephValide(valeur) {
+    return /^[0-9A-Z]{12}$/.test(String(valeur || '').replace(/[\s-]/g, '').toUpperCase());
   }
 
   function siretValide(valeur) {
@@ -398,6 +405,11 @@
     refs.permitGrid = $('#permitGrid');
     refs.infoForm = $('#infoForm');
     refs.formAlert = $('#formAlert');
+    refs.photoInput = $('#f-photo');
+    refs.photoApercu = $('#photoApercu');
+    refs.photoImage = $('#photoImage');
+    refs.photoBouton = $('#photoBouton');
+    refs.photoRetirer = $('#photoRetirer');
     refs.confirmWrap = $('#confirmWrap');
     refs.confirmBtn = $('[data-action="confirm"]');
     refs.confirmHint = $('#confirmHint');
@@ -419,6 +431,10 @@
     refs.adminList = $('#adminList');
     refs.adminEmpty = $('#adminEmpty');
     refs.adminCount = $('#adminCount');
+    refs.adminLogout = $('#adminLogout');
+    refs.banqueForm = $('#banqueForm');
+    refs.banqueEtat = $('#banqueEtat');
+    refs.banqueEnregistrer = $('#banqueEnregistrer');
   }
 
   /* ========================================================================
@@ -491,6 +507,8 @@
     setBind('rAdresse', form.adresse || '—');
     setBind('rTel', form.tel || '—');
     setBind('rEmail', form.email || state.dossierEmail || '—');
+    setBind('rNeph', form.neph || 'non communiqué');
+    setBind('rPhoto', state.photo.name || '—');
     setBind('payRef', payRef());
     setBind('payMethodName', method ? method.name : '—');
     setBind('payStatusLabel', payStatusLabel());
@@ -601,6 +619,10 @@
     if (!form.ville.trim()) errors.ville = 'La ville est requise.';
     if (!form.adresse.trim()) errors.adresse = 'L\'adresse est requise.';
     if (!form.pays.trim()) errors.pays = 'Le pays de résidence est requis.';
+    if (form.neph.trim() && !nephValide(form.neph)) {
+      errors.neph = 'Le NEPH comporte douze caractères. Laissez vide si vous n\'en avez pas encore.';
+    }
+    if (!state.photo.file) errors.photo = 'La photo d\'identité est requise.';
     return errors;
   }
 
@@ -609,9 +631,9 @@
   var CHAMPS_API = { telephone: 'tel' };
 
   function showFormErrors(errors) {
-    var keys = ['prenom', 'nom', 'naissance', 'tel', 'email', 'ville', 'adresse', 'pays'];
+    var keys = ['prenom', 'nom', 'naissance', 'tel', 'email', 'ville', 'adresse', 'pays', 'neph', 'photo'];
     keys.forEach(function (key) {
-      var input = refs.infoForm.elements[key];
+      var input = key === 'photo' ? null : refs.infoForm.elements[key];
       var slot = $('#e-' + key);
       var message = errors[key] || '';
       if (slot) slot.textContent = message;
@@ -662,6 +684,54 @@
     renderFunnel();
   }
 
+  /* --- Photo d'identité ------------------------------------------------ */
+
+  var TAILLE_PHOTO_MAX = 5 * 1024 * 1024;
+
+  function libererApercu() {
+    if (state.photo.apercu) URL.revokeObjectURL(state.photo.apercu);
+    state.photo.apercu = '';
+  }
+
+  function resetPhoto() {
+    libererApercu();
+    state.photo = { file: null, name: '', apercu: '' };
+    if (refs.photoInput) refs.photoInput.value = '';
+    renderPhoto();
+  }
+
+  function renderPhoto() {
+    var choisie = Boolean(state.photo.file);
+    show(refs.photoApercu, choisie);
+    show(refs.photoRetirer, choisie);
+    refs.photoBouton.textContent = choisie ? state.photo.name : 'Choisir ma photo';
+    $('[data-photo-field]').classList.toggle('is-filled', choisie);
+    if (choisie) refs.photoImage.src = state.photo.apercu;
+    else refs.photoImage.removeAttribute('src');
+  }
+
+  function onPhotoChange() {
+    var file = refs.photoInput.files && refs.photoInput.files[0];
+    if (!file) return;
+    var slot = $('#e-photo');
+
+    if (file.type.indexOf('image/') !== 0) {
+      resetPhoto();
+      slot.textContent = 'La photo doit être une image (JPEG, PNG, WEBP ou HEIC).';
+      return;
+    }
+    if (file.size > TAILLE_PHOTO_MAX) {
+      resetPhoto();
+      slot.textContent = 'Photo trop volumineuse : 5 Mo maximum.';
+      return;
+    }
+
+    libererApercu();
+    slot.textContent = '';
+    state.photo = { file: file, name: file.name, apercu: URL.createObjectURL(file) };
+    renderPhoto();
+  }
+
   /* --- Confirmation ---------------------------------------------------- */
 
   function confirmRequest() {
@@ -677,6 +747,27 @@
 
     var fichier = state.proof.file;
     var jetonPreuve = null;
+    var jetonPhoto = null;
+
+    /* Dépôt d'un fichier : le serveur choisit le chemin et signe une URL à
+       usage unique, puis le navigateur y envoie le fichier directement. */
+    function deposer(file, usage) {
+      return api('/api/preuve-url', {
+        method: 'POST',
+        body: JSON.stringify({ usage: usage, nom: file.name, type: file.type, taille: file.size })
+      }).then(function (rep) {
+        return fetch(rep.url, {
+          method: 'PUT',
+          headers: { 'Content-Type': file.type },
+          body: file
+        }).then(function (r) {
+          if (!r.ok) throw new Error('L\'envoi du fichier a échoué. Réessayez.');
+          return rep.jeton;
+        }, function () {
+          throw new Error('L\'envoi du fichier a échoué. Vérifiez votre connexion.');
+        });
+      });
+    }
 
     // 1. Le serveur choisit le chemin du fichier et signe une URL de dépôt.
     api('/api/preuve-url', {
@@ -696,8 +787,14 @@
         throw new Error('L\'envoi de la preuve a échoué. Vérifiez votre connexion.');
       });
     }).then(function () {
+      // 3. La photo n'accompagne que la création d'un dossier : lors d'un
+      //    renvoi de preuve, elle a déjà été transmise.
+      if (state.dossier || !state.photo.file) return null;
+      indication('Envoi de votre photo…', false);
+      return deposer(state.photo.file, 'photo').then(function (jeton) { jetonPhoto = jeton; });
+    }).then(function () {
       indication('Enregistrement de votre demande…', false);
-      // 3. Création du dossier, ou renvoi de preuve sur un dossier existant.
+      // 4. Création du dossier, ou renvoi de preuve sur un dossier existant.
       var charge = state.dossier
         ? {
             numero: state.dossier,
@@ -709,6 +806,8 @@
             permis_id: permit ? permit.id : '',
             moyen_id: method.id,
             preuve: jetonPreuve,
+            photo: jetonPhoto,
+            neph: form.neph,
             prenom: form.prenom, nom: form.nom, naissance: form.naissance,
             email: form.email, telephone: form.tel, ville: form.ville,
             adresse: form.adresse, pays: form.pays, situation: form.situation
@@ -842,7 +941,7 @@
     // Une session encore valide évite de redemander le code.
     api('/api/admin/session', { method: 'GET' }).then(function (d) {
       state.adminAuth = Boolean(d && d.ouverte);
-      if (state.adminAuth) return chargerAdmin();
+      if (state.adminAuth) return Promise.all([chargerAdmin(), chargerBanque()]);
       renderAdmin();
       refs.adminPass.focus();
     }).catch(function () {
@@ -869,7 +968,7 @@
         refs.adminPass.value = '';
         refs.adminError.textContent = '';
         state.adminAuth = true;
-        return chargerAdmin();
+        return Promise.all([chargerAdmin(), chargerBanque()]);
       })
       .catch(function (e) {
         state.adminAuth = false;
@@ -879,7 +978,7 @@
   }
 
   function adminLogout() {
-    return api('/api/admin/logout', { method: 'POST' }).catch(function () { /* sans conséquence */ })
+    return api('/api/admin/session', { method: 'DELETE' }).catch(function () { /* sans conséquence */ })
       .then(function () {
         state.adminAuth = false;
         state.records = [];
@@ -918,13 +1017,105 @@
       });
   }
 
+  /* --- Coordonnées bancaires, modifiables depuis l'espace administrateur --- */
+
+  function chargerBanque() {
+    return api('/api/admin/parametres', { method: 'GET' })
+      .then(function (d) {
+        remplirFormulaireBanque(d.banque || {});
+      })
+      .catch(function (e) {
+        etatBanque(e.message, true);
+      });
+  }
+
+  function remplirFormulaireBanque(banque) {
+    ['titulaire', 'iban', 'bic', 'rib', 'reference'].forEach(function (cle) {
+      var champ = refs.banqueForm.elements[cle];
+      if (champ) champ.value = banque[cle] || '';
+    });
+  }
+
+  function etatBanque(texteEtat, estErreur) {
+    refs.banqueEtat.textContent = texteEtat;
+    if (estErreur) refs.banqueEtat.setAttribute('data-erreur', '');
+    else refs.banqueEtat.removeAttribute('data-erreur');
+  }
+
+  function erreursBanque(champs) {
+    ['titulaire', 'iban', 'bic', 'reference'].forEach(function (cle) {
+      var slot = $('#eb-' + cle);
+      var champ = refs.banqueForm.elements[cle];
+      var message = (champs && champs[cle]) || '';
+      if (slot) slot.textContent = message;
+      if (champ) {
+        if (message) champ.setAttribute('aria-invalid', 'true');
+        else champ.removeAttribute('aria-invalid');
+      }
+    });
+  }
+
+  function enregistrerBanque() {
+    var banque = {};
+    ['titulaire', 'iban', 'bic', 'rib', 'reference'].forEach(function (cle) {
+      var champ = refs.banqueForm.elements[cle];
+      banque[cle] = champ ? champ.value : '';
+    });
+
+    erreursBanque(null);
+    etatBanque('Enregistrement…', false);
+    refs.banqueEnregistrer.disabled = true;
+
+    api('/api/admin/parametres', { method: 'POST', body: JSON.stringify({ banque: banque }) })
+      .then(function (d) {
+        refs.banqueEnregistrer.disabled = false;
+        remplirFormulaireBanque(d.banque);
+        // Le site public lit ces valeurs via /api/catalogue ; on les reprend
+        // aussi ici pour que l'étape de paiement soit à jour sans rechargement.
+        SITE.bank = d.banque;
+            etatBanque('Coordonnées enregistrées.', false);
+        setTimeout(function () { etatBanque('', false); }, 4000);
+      })
+      .catch(function (e) {
+        refs.banqueEnregistrer.disabled = false;
+        if (e.statut === 422 && e.donnees && e.donnees.champs) {
+          erreursBanque(e.donnees.champs);
+          etatBanque('Vérifiez les champs signalés.', true);
+          return;
+        }
+        if (e.statut === 401) {
+          state.adminAuth = false;
+          renderAdmin();
+          refs.adminError.textContent = 'Session expirée, reconnectez-vous.';
+          return;
+        }
+        etatBanque(e.message, true);
+      });
+  }
+
   function renderAdmin() {
     show(refs.adminGate, !state.adminAuth);
     show(refs.adminBody, state.adminAuth);
+    show(refs.adminLogout, state.adminAuth);
     if (!state.adminAuth) return;
+
+    $$('.admin-onglet').forEach(function (btn) {
+      btn.setAttribute('aria-selected', btn.getAttribute('data-onglet') === state.adminOnglet ? 'true' : 'false');
+    });
+    $$('.admin-section').forEach(function (section) {
+      show(section, section.getAttribute('data-section') === state.adminOnglet);
+    });
+    if (state.adminOnglet !== 'demandes') return;
 
     var totaux = state.totaux;
     var libelles = { all: 'Toutes', pending: 'En attente', approved: 'Validées', rejected: 'Rejetées' };
+    $$('.admin-onglet').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        state.adminOnglet = btn.getAttribute('data-onglet');
+        renderAdmin();
+      });
+    });
+
     $$('[data-filter]').forEach(function (btn) {
       var id = btn.getAttribute('data-filter');
       btn.textContent = libelles[id] + ' (' + (totaux[id] || 0) + ')';
@@ -953,16 +1144,31 @@
 
     /* En-tête */
     var head = el('div', 'admin-card__head');
-    var left = el('div');
+    var left = el('div', 'admin-card__client-bloc');
+
+    /* La photo d'identité est servie par /api/admin/preuve, derrière la
+       session : le bucket reste privé, sans URL publique. */
+    if (record.a_photo) {
+      var photoBloc = el('div', 'admin-photo');
+      var photoImg = document.createElement('img');
+      photoImg.src = '/api/admin/preuve?piece=photo&numero=' + encodeURIComponent(record.numero);
+      photoImg.alt = 'Photo d\'identité de ' + record.client;
+      photoImg.loading = 'lazy';
+      photoBloc.appendChild(photoImg);
+      left.appendChild(photoBloc);
+    }
+
+    var infos = el('div');
     var client = el('div', 'admin-card__client');
     client.appendChild(el('span', 'admin-card__name', record.client));
     client.appendChild(el('span', 'pill admin-card__pill pill--' + status.cls, status.label));
-    left.appendChild(client);
-    left.appendChild(el('p', 'admin-card__ref', record.numero + ' · ' + frJour(record.date)));
+    infos.appendChild(client);
+    infos.appendChild(el('p', 'admin-card__ref', record.numero + ' · ' + frJour(record.date)));
     if (record.renvoye_le) {
-      left.appendChild(el('p', 'admin-card__resubmit',
+      infos.appendChild(el('p', 'admin-card__resubmit',
         'Nouvelle preuve reçue le ' + frDateHeure(record.renvoye_le)));
     }
+    left.appendChild(infos);
     head.appendChild(left);
 
     var money = el('div', 'admin-card__money');
@@ -983,6 +1189,8 @@
     if (record.naissance) {
       contact.appendChild(el('span', 'admin-contact__mtcn', 'Né(e) le ' + frDate(record.naissance)));
     }
+    contact.appendChild(el('span', 'admin-contact__mtcn',
+      record.neph ? 'NEPH : ' + record.neph : 'NEPH non communiqué'));
     if (record.reference_wu) {
       contact.appendChild(el('span', 'admin-contact__mtcn', 'MTCN : ' + record.reference_wu));
     }
@@ -1297,7 +1505,13 @@
     'track-run': function () { runTrack(); },
     'track-retry': function () { trackRetry(); },
 
+    'photo-retirer': function () {
+      resetPhoto();
+      $('#e-photo').textContent = '';
+    },
+
     admin: function () { closeMobileNav(); openAdmin(); },
+    'banque-enregistrer': function () { enregistrerBanque(); },
     'admin-close': function () { closeAdmin(); },
     'admin-login': function () { adminLogin(); },
     'admin-logout': function () { adminLogout(); },
@@ -1329,6 +1543,7 @@
     state.method = null;
     state.declared = false;
     resetProof();
+    resetPhoto();
     indication('', false);
   }
 
@@ -1383,6 +1598,8 @@
       input.addEventListener('change', function () { onProofChange(input); });
     });
 
+    refs.photoInput.addEventListener('change', onPhotoChange);
+
     [refs.trackInput, refs.trackEmail].forEach(function (champ) {
       champ.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); runTrack(); }
@@ -1426,13 +1643,11 @@
       return;
     }
 
-    var renseigne = String(SITE.bank.titulaire || '').trim() || String(SITE.bank.iban || '').trim();
-    notice.textContent = renseigne
-      ? 'Coordonnées bancaires momentanément indisponibles. Appelez-nous au '
-        + SITE.contact.phone + ' pour régler votre inscription.'
-      : 'coordonnées bancaires à compléter dans coordonnees-bancaires.js avant mise en ligne';
-    console.warn('[Permis Express] IBAN absent ou invalide (clé de contrôle) : '
-      + 'les coordonnées ne sont pas affichées. Corrigez coordonnees-bancaires.js.');
+    notice.textContent = 'Coordonnées bancaires momentanément indisponibles. '
+      + 'Appelez-nous au ' + SITE.contact.phone + ' pour régler votre inscription.';
+    console.warn('[Permis Express] IBAN absent ou invalide (clé de contrôle) : les '
+      + 'coordonnées ne sont pas affichées. Corrigez-les dans l\'espace '
+      + 'administrateur, onglet Réglages.');
   }
 
   function init() {
@@ -1452,8 +1667,11 @@
     fillForm();
     wire();
 
+    // Les coordonnées bancaires arrivent avec le catalogue : on n'affiche le
+    // panneau de virement qu'une fois la réponse reçue.
     chargerCatalogue().then(function () {
       buildPermitGrid();
+      afficherCoordonneesBancaires();
       renderFunnel();
     });
   }

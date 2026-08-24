@@ -10,8 +10,10 @@
    est simplement « en attente de vérification ». */
 
 import { permisParId, moyenParId } from './_lib/catalogue.js';
-import { insererDossier, majDossier, lireDossier, supprimerPreuve } from './_lib/supabase.js';
+import { insererDossier, majDossier, lireDossier, supprimerFichier,
+  BUCKET_PREUVES, BUCKET_PHOTOS } from './_lib/supabase.js';
 import { verifierPreuve } from './_lib/auth.js';
+import { nephValide, nephNormalise } from './_lib/validation.js';
 import { json, methodes, corps, texte, estEmail, erreurServeur, configuré, nonConfiguré } from './_lib/http.js';
 
 /* Numéro à six chiffres : suffisamment large pour éviter les collisions, et
@@ -56,7 +58,7 @@ export default async function handler(req, res) {
 
   // La preuve est obligatoire dans les deux cas.
   const preuve = verifierPreuve(d.preuve);
-  if (!preuve) {
+  if (!preuve || preuve.bucket !== BUCKET_PREUVES) {
     return json(res, 400, { erreur: 'Preuve de paiement manquante ou expirée. Joignez à nouveau le fichier.' });
   }
 
@@ -99,7 +101,8 @@ export default async function handler(req, res) {
       // L'ancienne preuve n'a plus d'usage : on ne conserve pas de données
       // personnelles au-delà du nécessaire.
       if (ancienneP && ancienneP !== preuve.chemin) {
-        try { await supprimerPreuve(ancienneP); } catch (e) { console.error('[purge preuve]', e); }
+        try { await supprimerFichier(BUCKET_PREUVES, ancienneP); }
+        catch (e) { console.error('[purge preuve]', e); }
       }
 
       return json(res, 200, {
@@ -117,6 +120,21 @@ export default async function handler(req, res) {
     if (!permis) return json(res, 400, { erreur: 'Formation inconnue.' });
 
     const { f, erreurs } = valider(d);
+
+    /* Photo d'identité : obligatoire, elle fait partie du dossier de permis.
+       Le jeton doit désigner le bucket des photos — pas celui des preuves. */
+    const photo = verifierPreuve(d.photo);
+    if (!photo || photo.bucket !== BUCKET_PHOTOS) {
+      erreurs.photo = 'La photo d\'identité est requise. Joignez à nouveau le fichier.';
+    }
+
+    /* NEPH : facultatif. Un candidat qui s'inscrit pour la première fois n'en
+       a pas encore — l'exiger bloquerait précisément les nouveaux clients. */
+    const neph = nephNormalise(texte(d.neph, 20));
+    if (neph && !nephValide(neph)) {
+      erreurs.neph = 'Le NEPH comporte douze caractères. Laissez vide si vous n\'en avez pas encore.';
+    }
+
     if (Object.keys(erreurs).length) {
       return json(res, 422, { erreur: 'Certaines informations sont incomplètes.', champs: erreurs });
     }
@@ -128,6 +146,8 @@ export default async function handler(req, res) {
       permis_id: permis.id, permis_nom: permis.nom, montant: permis.prix,
       moyen_id: moyen.id, moyen_nom: moyen.nom,
       preuve_chemin: preuve.chemin, preuve_nom: preuve.nom, preuve_type: preuve.type,
+      neph: neph || null,
+      photo_chemin: photo.chemin, photo_nom: photo.nom, photo_type: photo.type,
       statut: 'pending', historique: []
     };
 

@@ -1121,3 +1121,122 @@ h1, h2 {
 @media print {
   .site-header, .promo, .site-footer, .overlay, .skip-link { display: none !important; }
 }
+
+/* --------------------------------------------------------------------------
+   Photo d'identité et aides de saisie (étape « Vos informations »)
+   -------------------------------------------------------------------------- */
+
+.field__aide {
+  font-size: 13px;
+  color: var(--muted-2);
+  line-height: 1.5;
+  margin-top: 6px;
+}
+
+.photo-champ {
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line-2);
+}
+.photo-champ .field__aide { margin-top: 4px; max-width: 62ch; }
+
+.photo-champ__ligne {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+/* Proportion 35 × 45 mm, celle d'une photo d'identité française. */
+.photo-apercu {
+  flex: none;
+  width: 70px;
+  height: 90px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-alt);
+  border: 1px solid var(--line);
+}
+.photo-apercu img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* --------------------------------------------------------------------------
+   Espace administrateur : onglets et réglages
+   -------------------------------------------------------------------------- */
+
+.overlay__actions { display: flex; gap: 8px; flex: none; }
+
+.admin-onglets {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 22px;
+}
+.admin-onglet {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 10px 14px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+.admin-onglet:hover { color: var(--ink); }
+.admin-onglet[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--gold-mid); }
+
+/* Même présentation qu'une fiche de dossier, mais une classe distincte :
+   « admin-card » ne désigne qu'un dossier, ce qui évite toute confusion. */
+.admin-panneau {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.admin-reglages__titre {
+  font-family: 'Archivo', system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 17px;
+  margin-bottom: 6px;
+}
+.admin-reglages__aide {
+  color: var(--muted);
+  font-size: 14.5px;
+  line-height: 1.6;
+  max-width: 62ch;
+  margin-bottom: 22px;
+}
+.admin-reglages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
+}
+.admin-reglages__large { grid-column: 1 / -1; }
+.admin-reglages input { font-family: ui-monospace, Menlo, monospace; font-size: 14px; }
+#b-titulaire { font-family: var(--body); }
+
+.admin-reglages__actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line-2);
+}
+.admin-reglages__etat { font-size: 14px; font-weight: 600; color: var(--ok); }
+.admin-reglages__etat[data-erreur] { color: var(--err); }
+
+/* Photo d'identité dans la fiche d'un dossier */
+.admin-photo { flex: none; }
+.admin-photo img {
+  width: 84px;
+  height: 108px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  display: block;
+}
+.admin-card__client-bloc { display: flex; gap: 16px; align-items: flex-start; }
