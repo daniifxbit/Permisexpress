@@ -21,6 +21,18 @@ function esc(v) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
+/* PostgREST répond PGRST125 quand le chemin demandé ne lui correspond pas :
+   le symptôme d'une adresse de projet contenant déjà « /rest/v1 ». Le remède
+   n'est alors pas de recréer les tables. */
+function remede(e, parDefaut) {
+  if (String(e && e.message).includes('PGRST125')) {
+    return 'L\'adresse SUPABASE_URL contient un chemin en trop. Elle doit se limiter au '
+      + 'domaine, du type https://xxxxxxxx.supabase.co — sans /rest/v1 ni rien après. '
+      + 'Corrigez-la dans Vercel, puis redéployez.';
+  }
+  return parDefaut;
+}
+
 /* Retire tout ce qui pourrait identifier le projet ou porter un secret. */
 function expurger(message) {
   let texte = String(message || '');
@@ -35,8 +47,8 @@ export default async function handler(req, res) {
   if (!methodes(req, res, ['GET'])) return;
 
   const controles = [];
-  const ajouter = (nom, etat, detail, remede) =>
-    controles.push({ nom, etat, detail, remede });
+  const ajouter = (nom, etat, detail, conseil) =>
+    controles.push({ nom, etat, detail, remede: conseil });
 
   /* ---- 1. Variables d'environnement ---- */
   const url = process.env.SUPABASE_URL;
@@ -44,9 +56,23 @@ export default async function handler(req, res) {
   const empreinteAdmin = process.env.ADMIN_PASSWORD_HASH;
   const secret = process.env.SESSION_SECRET;
 
+  /* Erreur de saisie fréquente : coller l'adresse de l'API REST, qui se termine
+     par « /rest/v1 », au lieu de l'adresse du projet. Le code l'ignore, mais on
+     le signale pour que la variable soit remise au propre. */
+  let cheminEnTrop = false;
+  if (url) {
+    try {
+      const analysee = new URL(/^https?:\/\//i.test(url) ? url : 'https://' + url);
+      cheminEnTrop = analysee.pathname.replace(/\/+$/, '') !== '';
+    } catch { /* adresse illisible : signalée ci-dessous */ }
+  }
+
   ajouter('Adresse du projet Supabase', url ? 'ok' : 'ko',
-    url ? 'renseignée' : 'absente',
-    'Ajoutez SUPABASE_URL dans Vercel → Settings → Environment Variables, puis redéployez.');
+    !url ? 'absente'
+      : cheminEnTrop ? 'renseignée, mais elle contient un chemin en trop — seul le domaine est utilisé'
+      : 'renseignée',
+    'Ajoutez SUPABASE_URL dans Vercel → Settings → Environment Variables, puis redéployez. '
+    + 'Elle doit se limiter au domaine, du type https://xxxxxxxx.supabase.co — sans /rest/v1 à la fin.');
 
   ajouter('Clé d\'accès Supabase', cle ? 'ok' : 'ko',
     cle ? 'renseignée' : 'absente',
@@ -69,7 +95,7 @@ export default async function handler(req, res) {
       ajouter('Table des dossiers', 'ok', 'accessible', '');
     } catch (e) {
       ajouter('Table des dossiers', 'ko', expurger(e.message),
-        'Exécutez le script supabase/schema.sql dans Supabase → SQL Editor.');
+        remede(e, 'Exécutez le script supabase/schema.sql dans Supabase → SQL Editor.'));
     }
 
     try {
@@ -77,7 +103,7 @@ export default async function handler(req, res) {
       ajouter('Table des tentatives de connexion', 'ok', 'accessible', '');
     } catch (e) {
       ajouter('Table des tentatives de connexion', 'ko', expurger(e.message),
-        'Exécutez le script supabase/schema.sql dans Supabase → SQL Editor.');
+        remede(e, 'Exécutez le script supabase/schema.sql dans Supabase → SQL Editor.'));
     }
 
     /* ---- 3. Stockage des preuves : aller-retour complet ---- */
@@ -90,7 +116,7 @@ export default async function handler(req, res) {
       ajouter('Autorisation de dépôt de fichier', 'ok', 'obtenue', '');
     } catch (e) {
       ajouter('Autorisation de dépôt de fichier', 'ko', expurger(e.message),
-        'Le bucket « preuves » est absent : exécutez supabase/schema.sql dans Supabase → SQL Editor.');
+        remede(e, 'Le bucket « preuves » est absent : exécutez supabase/schema.sql dans Supabase → SQL Editor.'));
     }
 
     if (urlDepot) {

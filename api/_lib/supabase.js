@@ -4,7 +4,24 @@
    La clé `service_role` contourne le RLS. Elle ne doit JAMAIS être exposée au
    navigateur : elle n'est lue que dans ces fonctions serverless. */
 
-const base = () => String(process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+/* L'adresse du projet est un simple domaine : https://xxxxxxxx.supabase.co
+   Les pages de réglages de Supabase affichent aussi l'adresse de l'API REST,
+   avec « /rest/v1 » à la fin. Coller celle-ci enverrait toutes les requêtes
+   vers .../rest/v1/rest/v1/... et .../rest/v1/storage/v1/..., que PostgREST
+   rejette avec un PGRST125. On ne garde donc que le domaine, et on ajoute le
+   protocole s'il manque. */
+export function normaliserBase(brut) {
+  let valeur = String(brut || '').trim();
+  if (!valeur) return '';
+  if (!/^https?:\/\//i.test(valeur)) valeur = 'https://' + valeur;
+  try {
+    return new URL(valeur).origin;
+  } catch {
+    return valeur.replace(/\/+$/, '');
+  }
+}
+
+const base = () => normaliserBase(process.env.SUPABASE_URL);
 const cle = () => String(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
 
 function entetes(extra) {

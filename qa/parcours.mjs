@@ -8,6 +8,7 @@
 
 import { chromium, request } from 'playwright';
 import { demarrer } from './serveur-test.mjs';
+import { normaliserBase } from '../api/_lib/supabase.js';
 
 const banc = await demarrer();
 const BASE = banc.origine;
@@ -396,6 +397,23 @@ await horsLigne.locator('.card-tarif[data-permit="C"] [data-action="choose"]').c
 await horsLigne.locator('.chosen-line [data-action="back-permit"]').click();
 ok('catalogue reconstruit depuis la page',
   (await horsLigne.locator('#permitGrid .pick').count()) === 8);
+
+/* ---------- 11. Adresse Supabase mal saisie ----------
+   Coller l'adresse de l'API REST au lieu de celle du projet envoyait toutes
+   les requêtes vers .../rest/v1/rest/v1/… — rejetées par PostgREST. */
+[
+  ['https://abcd.supabase.co',            'https://abcd.supabase.co'],
+  ['https://abcd.supabase.co/',           'https://abcd.supabase.co'],
+  ['https://abcd.supabase.co/rest/v1',    'https://abcd.supabase.co'],
+  ['https://abcd.supabase.co/rest/v1/',   'https://abcd.supabase.co'],
+  ['https://abcd.supabase.co/storage/v1', 'https://abcd.supabase.co'],
+  ['  https://abcd.supabase.co/rest/v1 ', 'https://abcd.supabase.co'],
+  ['abcd.supabase.co',                    'https://abcd.supabase.co'],
+  ['',                                    '']
+].forEach(([entree, attendu]) => {
+  ok('adresse normalisée : ' + (entree.trim() || '(vide)'),
+    normaliserBase(entree) === attendu, normaliserBase(entree));
+});
 
 ok('aucune erreur JavaScript', erreurs.length === 0, erreurs.join(' | '));
 ok('aucune ressource en échec', ressourcesEnEchec.length === 0, ressourcesEnEchec.join(' | '));
