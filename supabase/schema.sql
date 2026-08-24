@@ -89,9 +89,9 @@ create table if not exists public.admin_tentatives (
 -- ---------------------------------------------------------------------------
 -- 4. Verrouillage des accès
 --
--- RLS activé SANS aucune policy : ni la clé `anon` ni la clé publique ne
+-- RLS activé SANS aucune policy : ni la clé « anon » ni la clé publique ne
 -- peuvent lire ou écrire quoi que ce soit. Seules les fonctions serverless,
--- qui utilisent la clé `service_role`, y accèdent — et cette clé ne quitte
+-- qui utilisent la clé « service_role », y accèdent — et cette clé ne quitte
 -- jamais le serveur.
 -- ---------------------------------------------------------------------------
 
