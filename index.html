@@ -119,7 +119,7 @@
             <span class="hero-steps__num" aria-hidden="true">3</span>
             <span>
               <span class="hero-steps__title">Vérifiez puis payez</span>
-              <span class="hero-steps__text">Virement, Wero ou Western Union</span>
+              <span class="hero-steps__text">Virement bancaire, preuve à joindre</span>
             </span>
           </li>
           <li>
@@ -342,7 +342,7 @@
         <article class="card-method">
           <p class="card-method__num">03</p>
           <h3 class="card-method__title">Vérifiez et réglez</h3>
-          <p class="card-method__text">Un récapitulatif complet, puis le moyen de paiement de votre choix : virement, Wero ou Western Union.</p>
+          <p class="card-method__text">Un récapitulatif complet, puis le règlement par virement bancaire, avec la preuve de paiement à joindre.</p>
         </article>
         <article class="card-method">
           <p class="card-method__num">04</p>
@@ -482,7 +482,7 @@
         </details>
         <details class="faq-item" name="faq">
           <summary>Quels moyens de paiement acceptez-vous ?</summary>
-          <p class="faq-item__body">Le virement bancaire, Wero et Western Union. Chaque paiement est vérifié manuellement par notre équipe avant la confirmation définitive de votre dossier.</p>
+          <p class="faq-item__body">Le virement bancaire. Vous joignez votre preuve de virement au moment de l'inscription, et chaque paiement est vérifié manuellement par notre équipe avant la confirmation définitive de votre dossier.</p>
         </details>
         <details class="faq-item" name="faq">
           <summary>Que se passe-t-il après mon paiement ?</summary>
@@ -494,7 +494,7 @@
         </details>
         <details class="faq-item" name="faq">
           <summary>Le paiement en ligne est-il sécurisé ?</summary>
-          <p class="faq-item__body">Aucun paiement n'est débité directement sur le site : vous réglez via votre banque, Wero ou Western Union, et chaque opération est confirmée manuellement. Vos informations ne sont jamais revendues.</p>
+          <p class="faq-item__body">Aucun paiement n'est débité directement sur le site : vous réglez par virement depuis votre banque, et chaque opération est confirmée manuellement par notre équipe. Vos informations ne sont jamais revendues.</p>
         </details>
       </div>
       <p class="faq__more">Une autre question ? <button type="button" class="btn-link" data-action="start">Démarrez votre demande</button> et un conseiller vous accompagne.</p>
@@ -781,30 +781,16 @@
 
       <!-- ---------- Étape 4 : paiement ---------- -->
       <section class="funnel-step" data-step="4" hidden>
-        <h2>Choisissez votre moyen de paiement</h2>
+        <h2 id="payTitle">Choisissez votre moyen de paiement</h2>
         <p class="step-lead">Montant : <strong data-bind="montant">—</strong> — <span data-bind="permitName">—</span>. Votre paiement sera vérifié manuellement par notre équipe avant confirmation.</p>
 
-        <div class="grid grid--paymethods" role="group" aria-label="Moyens de paiement">
+        <div class="grid grid--paymethods" id="payMethods" role="group" aria-label="Moyens de paiement">
           <button type="button" class="pick" data-action="pick-method" data-method="vir" aria-pressed="false">
             <span class="pick__top">
               <span class="pick__name">Virement bancaire</span>
               <span class="pick__check" aria-hidden="true"></span>
             </span>
             <span class="pick__desc">Depuis votre banque, avec référence de dossier.</span>
-          </button>
-          <button type="button" class="pick" data-action="pick-method" data-method="wero" aria-pressed="false">
-            <span class="pick__top">
-              <span class="pick__name">Wero</span>
-              <span class="pick__check" aria-hidden="true"></span>
-            </span>
-            <span class="pick__desc">Paiement mobile européen — lien sécurisé.</span>
-          </button>
-          <button type="button" class="pick" data-action="pick-method" data-method="wu" aria-pressed="false">
-            <span class="pick__top">
-              <span class="pick__name">Western Union</span>
-              <span class="pick__check" aria-hidden="true"></span>
-            </span>
-            <span class="pick__desc">Transfert en agence ou en ligne, avec référence MTCN.</span>
           </button>
         </div>
 
@@ -854,54 +840,6 @@
           <p class="todo-note" id="bankTodo">coordonnées bancaires réelles à compléter avant mise en ligne</p>
           <div class="pay-actions">
             <button type="button" class="declare-btn" data-action="declare" aria-pressed="false">J'ai effectué le virement</button>
-            <label class="proof-field" data-proof-field>
-              <span>Joindre une preuve de paiement (obligatoire)</span>
-              <input type="file" accept="image/*,application/pdf" data-proof-input>
-            </label>
-            <span class="proof-name" data-proof-name></span>
-          </div>
-        </div>
-
-        <!-- Wero -->
-        <div class="panel" data-pay-panel="wero" hidden>
-          <p class="panel__title">Paiement Wero</p>
-          <p class="panel__lead">Le paiement Wero direct sera bientôt disponible sur le site. En attendant le raccordement du prestataire, validez votre demande : un conseiller vous enverra un lien de paiement Wero sécurisé par e-mail.</p>
-          <p class="todo-note">point d'intégration : brancher ici l'API / le lien de paiement Wero officiel</p>
-          <div class="pay-actions">
-            <button type="button" class="declare-btn" data-action="declare" aria-pressed="false">Valider — être recontacté via Wero</button>
-            <label class="proof-field" data-proof-field>
-              <span>Joindre une preuve de paiement (obligatoire)</span>
-              <input type="file" accept="image/*,application/pdf" data-proof-input>
-            </label>
-            <span class="proof-name" data-proof-name></span>
-          </div>
-        </div>
-
-        <!-- Western Union -->
-        <div class="panel" data-pay-panel="wu" hidden>
-          <p class="panel__title">Western Union</p>
-          <p class="panel__lead">Effectuez le transfert en agence ou en ligne, puis renseignez la référence du transfert (MTCN).</p>
-          <div class="bank-list">
-            <div class="bank-row">
-              <div>
-                <p class="bank-row__label">Bénéficiaire</p>
-                <p class="bank-row__value" id="wuName"></p>
-              </div>
-            </div>
-            <div class="bank-row">
-              <div>
-                <p class="bank-row__label">Ville / Pays de retrait</p>
-                <p class="bank-row__value" id="wuCity"></p>
-              </div>
-            </div>
-          </div>
-          <p class="todo-note" id="wuTodo">informations du bénéficiaire réelles à compléter avant mise en ligne</p>
-          <div class="field" style="margin-top:20px;max-width:380px">
-            <label class="field__label" for="f-mtcn">Référence du transfert (MTCN) <span class="field__opt">(facultatif)</span></label>
-            <input class="field__input" id="f-mtcn" placeholder="10 chiffres" autocomplete="off" inputmode="numeric">
-          </div>
-          <div class="pay-actions">
-            <button type="button" class="declare-btn" data-action="declare" aria-pressed="false">J'ai effectué le transfert</button>
             <label class="proof-field" data-proof-field>
               <span>Joindre une preuve de paiement (obligatoire)</span>
               <input type="file" accept="image/*,application/pdf" data-proof-input>

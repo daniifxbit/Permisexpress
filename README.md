@@ -17,8 +17,7 @@ suivi de dossier, avis clients, FAQ, pied de page.
 1. choix du permis ;
 2. informations personnelles, avec validation ;
 3. récapitulatif à vérifier avant tout paiement ;
-4. paiement — virement bancaire, Wero ou Western Union — avec **preuve de
-   paiement obligatoire** ;
+4. paiement par virement bancaire, avec **preuve de paiement obligatoire** ;
 5. confirmation : numéro de dossier, statut, prochaines étapes et facture
    téléchargeable en PDF.
 
@@ -139,12 +138,10 @@ En haut de `app.js`, dans l'objet `SITE` :
 | Élément | Clé | Statut |
 |---|---|---|
 | Coordonnées bancaires (titulaire, IBAN, BIC) | `SITE.bank` | **à fournir** |
-| Bénéficiaire et ville Western Union | `SITE.westernUnion` | **à fournir** |
 | Mentions société sur la facture (SIRET, TVA, adresse) | `SITE.invoiceLegal` | **à fournir** |
 
-Une fois les vraies coordonnées saisies, passer `SITE.bank.complete` et
-`SITE.westernUnion.complete` à `true` : les encadrés orange « à compléter »
-disparaissent.
+Les coordonnées bancaires sont renseignées et `SITE.bank.complete` vaut `true`,
+ce qui retire l'encadré orange « à compléter » du panneau de virement.
 
 Également dans `index.html` : remplacer `https://exemple.fr` par le domaine
 réel dans les balises `canonical`, `og:url` et `og:image`.
@@ -191,8 +188,12 @@ d'environnement, redéployez : Vercel ne les recharge qu'au déploiement suivant
 
 - **Aucun e-mail n'est envoyé.** Le client est informé via « Suivre ma
   demande ». Le point d'intégration est marqué dans `api/admin/decision.js`.
-- **Wero n'est pas raccordé.** L'interface est prête ; en attendant, le site
-  annonce clairement qu'un conseiller enverra un lien de paiement.
+- **Un seul moyen de paiement : le virement bancaire.** Wero et Western Union
+  ont été retirés faute de coordonnées d'encaissement — proposer un règlement
+  qui n'aboutit pas est pire que ne pas le proposer. Pour en rétablir un,
+  remettez-le dans `MOYENS` (`api/_lib/catalogue.js`) et rajoutez son panneau
+  dans `index.html` ; la colonne `reference_wu` et l'affichage du MTCN côté
+  administrateur sont conservés pour les dossiers déjà enregistrés.
 - **Pas de purge automatique.** Un client qui abandonne après avoir déposé sa
   preuve, sans valider, laisse un fichier orphelin dans le bucket. Sans
   conséquence fonctionnelle, mais un nettoyage périodique serait utile.

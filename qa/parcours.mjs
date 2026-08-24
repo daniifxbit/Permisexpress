@@ -76,6 +76,8 @@ ok('FAQ exclusive', !(await page.locator('.faq-item').first().evaluate((n) => n.
 /* Le catalogue vient du serveur */
 ok('catalogue chargé depuis l\'API',
   (await page.evaluate(async () => (await (await fetch('/api/catalogue')).json()).permis.length)) === 8);
+ok('un seul moyen de paiement au catalogue serveur',
+  (await page.evaluate(async () => (await (await fetch('/api/catalogue')).json()).moyens)).length === 1);
 
 /* ---------- 2. Parcours : choix et validation ---------- */
 await page.locator('.card-tarif[data-permit="A2"] [data-action="choose"]').click();
@@ -115,10 +117,11 @@ await page.locator('[data-action="submit-info"]').click();
 /* ---------- 3. Paiement ---------- */
 await page.locator('[data-action="to-pay"]').click();
 ok('étape paiement', await page.locator('.funnel-step[data-step="4"]').isVisible());
-ok('bouton confirmer masqué sans moyen', await page.locator('#confirmWrap').isHidden());
-
-await page.locator('[data-action="pick-method"][data-method="vir"]').click();
-ok('panneau virement affiché', await page.locator('[data-pay-panel="vir"]').isVisible());
+ok('un seul moyen proposé : grille de choix masquée', await page.locator('#payMethods').isHidden());
+ok('titre adapté au moyen unique',
+  (await page.locator('#payTitle').textContent()).includes('Réglez votre inscription'));
+ok('virement présélectionné', await page.locator('[data-pay-panel="vir"]').isVisible());
+ok('bloc de confirmation affiché d\'emblée', await page.locator('#confirmWrap').isVisible());
 ok('confirmer désactivé sans preuve', await page.locator('[data-action="confirm"]').isDisabled());
 ok('message preuve obligatoire', (await page.locator('#confirmHint').textContent()).includes('obligatoire'));
 /* Coordonnées bancaires réelles : la clé IBAN doit rester valide, et
@@ -139,8 +142,8 @@ ok('message preuve obligatoire', (await page.locator('#confirmHint').textContent
   // est masqué à cet instant, donc isHidden() serait vrai dans les deux cas.
   ok('encadré « à compléter » retiré du virement',
     await page.locator('#bankTodo').evaluate((n) => n.hidden) === true);
-  ok('encadré « à compléter » conservé pour Western Union',
-    await page.locator('#wuTodo').evaluate((n) => n.hidden) === false);
+  ok('aucun moyen de paiement sans coordonnées n\'est proposé',
+    (await page.locator('[data-pay-panel]').count()) === 1);
 }
 
 ok('référence de virement',
@@ -155,13 +158,11 @@ ok('nom de la preuve affiché',
   (await page.locator('[data-pay-panel="vir"] [data-proof-name]').textContent()).includes('recu.pdf'));
 ok('confirmer activé', !(await page.locator('[data-action="confirm"]').isDisabled()));
 
-/* Changer de moyen remet la preuve et le MTCN à zéro */
-await page.locator('[data-action="pick-method"][data-method="wu"]').click();
-ok('preuve réinitialisée au changement', await page.locator('[data-action="confirm"]').isDisabled());
-await page.fill('#f-mtcn', '1234567890');
-await page.locator('[data-action="pick-method"][data-method="vir"]').click();
+/* Une preuve peut être remplacée avant confirmation */
 await page.locator('[data-pay-panel="vir"] [data-proof-input]')
-  .setInputFiles({ name: 'recu.pdf', mimeType: 'application/pdf', buffer: PDF });
+  .setInputFiles({ name: 'recu-corrige.pdf', mimeType: 'application/pdf', buffer: PDF });
+ok('preuve remplaçable avant confirmation',
+  (await page.locator('[data-pay-panel="vir"] [data-proof-name]').textContent()).includes('recu-corrige.pdf'));
 
 await page.locator('[data-action="confirm"]').click();
 await page.waitForSelector('.funnel-step[data-step="5"]:not([hidden])', { timeout: 10000 });
@@ -177,7 +178,8 @@ ok('montant 650 €', confirmation.includes('650 €'));
 ok('1 dossier en base', banc.dossiers.length === 1);
 ok('dossier en attente', banc.dossiers[0]?.statut === 'pending');
 ok('montant calculé par le serveur', banc.dossiers[0]?.montant === 650);
-ok('MTCN non conservé (virement)', !banc.dossiers[0]?.reference_wu);
+ok('moyen enregistré = virement bancaire', banc.dossiers[0]?.moyen_id === 'vir');
+ok('aucune référence de transfert enregistrée', !banc.dossiers[0]?.reference_wu);
 ok('preuve déposée dans le stockage', banc.fichiers.size === 1);
 ok('rien n\'est écrit dans le navigateur',
   (await page.evaluate(() => JSON.stringify(Object.keys(localStorage)))) === '[]');

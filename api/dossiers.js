@@ -63,7 +63,6 @@ export default async function handler(req, res) {
   const moyen = moyenParId(texte(d.moyen_id, 20));
   if (!moyen) return json(res, 400, { erreur: 'Moyen de paiement inconnu.' });
 
-  const referenceWu = moyen.id === 'wu' ? texte(d.reference_wu, 40) : '';
 
   try {
     /* ---------------- Renvoi d'une preuve sur un dossier existant --------- */
@@ -90,7 +89,6 @@ export default async function handler(req, res) {
         preuve_type: preuve.type,
         moyen_id: moyen.id,
         moyen_nom: moyen.nom,
-        reference_wu: referenceWu,
         statut: 'pending',
         message: null,
         decide_le: null,
@@ -128,7 +126,7 @@ export default async function handler(req, res) {
       telephone: f.telephone, ville: f.ville, adresse: f.adresse, pays: f.pays,
       situation: f.situation || null,
       permis_id: permis.id, permis_nom: permis.nom, montant: permis.prix,
-      moyen_id: moyen.id, moyen_nom: moyen.nom, reference_wu: referenceWu || null,
+      moyen_id: moyen.id, moyen_nom: moyen.nom,
       preuve_chemin: preuve.chemin, preuve_nom: preuve.nom, preuve_type: preuve.type,
       statut: 'pending', historique: []
     };

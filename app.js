@@ -32,13 +32,6 @@
       complete: true
     },
 
-    /* Western Union — À COMPLÉTER */
-    westernUnion: {
-      beneficiary: 'Nom du bénéficiaire (à compléter)',
-      city: 'Ville / pays (à compléter)',
-      complete: false
-    },
-
     /* Contact affiché sur la facture */
     contact: {
       phone: '+33 6 76 32 61 99',
@@ -114,7 +107,6 @@
     method: null,          // id de METHODS
     declared: false,       // le client a déclaré avoir effectué le paiement
     proof: { file: null, name: '' },
-    wuRef: '',
     envoiEnCours: false,
 
     // Renseignés par le serveur à la confirmation
@@ -331,7 +323,8 @@
     refs.confirmWrap = $('#confirmWrap');
     refs.confirmBtn = $('[data-action="confirm"]');
     refs.confirmHint = $('#confirmHint');
-    refs.mtcn = $('#f-mtcn');
+    refs.payTitle = $('#payTitle');
+    refs.payMethods = $('#payMethods');
 
     refs.track = $('#trackOverlay');
     refs.trackInput = $('#trackInput');
@@ -431,6 +424,17 @@
   }
 
   function renderPayment() {
+    /* Un seul moyen proposé : le choisir soi-même n'apporte rien, on le
+       présélectionne et on masque la grille. Le jour où un second moyen est
+       remis au catalogue, la grille réapparaît d'elle-même. */
+    var moyenUnique = METHODS.length === 1;
+    if (moyenUnique && !state.method) state.method = METHODS[0].id;
+    show(refs.payMethods, !moyenUnique);
+    if (refs.payTitle) {
+      refs.payTitle.textContent = moyenUnique
+        ? 'Réglez votre inscription' : 'Choisissez votre moyen de paiement';
+    }
+
     var method = currentMethod();
 
     $$('[data-action="pick-method"]').forEach(function (btn) {
@@ -445,7 +449,7 @@
 
     $$('.declare-btn').forEach(function (btn) {
       btn.setAttribute('aria-pressed', state.declared ? 'true' : 'false');
-      btn.textContent = declareLabel(btn.closest('[data-pay-panel]').getAttribute('data-pay-panel'), state.declared);
+      btn.textContent = declareLabel(state.declared);
     });
 
     $$('[data-proof-field]').forEach(function (label) {
@@ -473,9 +477,7 @@
     else delete refs.confirmHint.dataset.erreur;
   }
 
-  function declareLabel(panel, initiated) {
-    if (panel === 'wero') return initiated ? 'Demande Wero enregistrée ✓' : 'Valider — être recontacté via Wero';
-    if (panel === 'wu') return initiated ? 'Transfert déclaré ✓' : 'J\'ai effectué le transfert';
+  function declareLabel(initiated) {
     return initiated ? 'Virement déclaré ✓' : 'J\'ai effectué le virement';
   }
 
@@ -623,13 +625,11 @@
             numero: state.dossier,
             email: state.dossierEmail || form.email,
             moyen_id: method.id,
-            reference_wu: state.wuRef,
             preuve: jetonPreuve
           }
         : {
             permis_id: permit ? permit.id : '',
             moyen_id: method.id,
-            reference_wu: state.wuRef,
             preuve: jetonPreuve,
             prenom: form.prenom, nom: form.nom, naissance: form.naissance,
             email: form.email, telephone: form.tel, ville: form.ville,
@@ -739,8 +739,6 @@
     state.dossier = d.numero;
     state.dossierDate = d.date;
     state.dossierMontant = d.montant;
-    state.wuRef = '';
-    if (refs.mtcn) refs.mtcn.value = '';
     state.declared = false;
     resetProof();
     indication('', false);
@@ -1100,7 +1098,6 @@
       '<div class="box"><div class="lbl">Paiement</div><table>' +
       row('Moyen de paiement', method ? method.name : '—') +
       row('Preuve transmise', state.proof.name || '—') +
-      (state.wuRef ? row('Référence transfert (MTCN)', state.wuRef) : '') +
       row('Statut', payStatusLabel()) +
       '</table><div style="margin-top:12px;font-size:12px;color:#5A5F6E">Ce document confirme l\'enregistrement de votre commande. ' +
       'Il ne vaut pas quittance : le paiement sera vérifié par notre équipe, qui vous adressera la confirmation définitive.</div></div>' +
@@ -1197,11 +1194,6 @@
       state.declared = false;
       resetProof();
       indication('', false);
-      // Un MTCN ne concerne que Western Union : on l'oublie si on en change.
-      if (state.method !== 'wu') {
-        state.wuRef = '';
-        if (refs.mtcn) refs.mtcn.value = '';
-      }
       renderFunnel();
     },
     declare: function () {
@@ -1254,8 +1246,6 @@
     state.trackFound = null;
     state.method = null;
     state.declared = false;
-    state.wuRef = '';
-    if (refs.mtcn) refs.mtcn.value = '';
     resetProof();
     indication('', false);
   }
@@ -1311,10 +1301,6 @@
       input.addEventListener('change', function () { onProofChange(input); });
     });
 
-    if (refs.mtcn) {
-      refs.mtcn.addEventListener('input', function () { state.wuRef = refs.mtcn.value; });
-    }
-
     [refs.trackInput, refs.trackEmail].forEach(function (champ) {
       champ.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); runTrack(); }
@@ -1348,10 +1334,7 @@
     $('#bankIban').textContent = SITE.bank.iban;
     $('#bankBic').textContent = SITE.bank.bic;
     $('#bankRib').textContent = SITE.bank.rib;
-    $('#wuName').textContent = SITE.westernUnion.beneficiary;
-    $('#wuCity').textContent = SITE.westernUnion.city;
     show($('#bankTodo'), !SITE.bank.complete);
-    show($('#wuTodo'), !SITE.westernUnion.complete);
 
     fillForm();
     wire();

@@ -19,10 +19,15 @@ export const PERMIS = [
   { id: 'CODE', cat: 'Théorie',     nom: 'Code de la route', desc: 'Préparation et passage du code seul.',      prix: 250 }
 ];
 
+/* Un moyen de paiement n'est proposé que si l'encaissement est réellement
+   possible. Wero et Western Union ont été retirés faute de coordonnées : les
+   afficher aurait promis au client un règlement qui n'aboutirait pas.
+
+   Pour en rétablir un, il suffit de le remettre dans cette liste et de rajouter
+   son panneau dans index.html — la colonne reference_wu et l'affichage du MTCN
+   côté administrateur sont conservés pour les dossiers déjà enregistrés. */
 export const MOYENS = [
-  { id: 'vir',  nom: 'Virement bancaire' },
-  { id: 'wero', nom: 'Wero' },
-  { id: 'wu',   nom: 'Western Union' }
+  { id: 'vir', nom: 'Virement bancaire' }
 ];
 
 export function permisParId(id) {
