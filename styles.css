@@ -1240,3 +1240,138 @@ h1, h2 {
   display: block;
 }
 .admin-card__client-bloc { display: flex; gap: 16px; align-items: flex-start; }
+
+/* --------------------------------------------------------------------------
+   « Comment ça marche ? » — un seul volet déroulant
+   -------------------------------------------------------------------------- */
+
+.comment__shell { max-width: 820px; margin: 0 auto; }
+
+.comment-item {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.comment-item summary {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 26px 28px;
+  cursor: pointer;
+  list-style: none;
+}
+.comment-item summary::-webkit-details-marker { display: none; }
+.comment-item summary::after {
+  content: '+';
+  margin-left: auto;
+  color: var(--gold-deep);
+  font-size: 24px;
+  line-height: 1;
+  flex: none;
+}
+.comment-item[open] summary::after { content: '−'; }
+.comment-item summary:hover { background: var(--surface-alt); }
+
+.comment-item__label {
+  font-family: 'Archivo', system-ui, sans-serif;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -.01em;
+}
+.comment-item__hint { color: var(--muted); font-size: 14.5px; }
+
+.comment-item__body { padding: 0 28px 28px; }
+.comment-item__intro {
+  color: var(--muted);
+  font-size: 15.5px;
+  line-height: 1.7;
+  margin: 0 0 22px;
+  max-width: 62ch;
+}
+
+/* Les numéros sont dessinés à la main : le compteur de <ol> ne se met pas
+   en pastille, et l'ordre des étapes doit rester une vraie liste ordonnée. */
+.comment-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 20px;
+  counter-reset: etape;
+}
+.comment-steps li {
+  counter-increment: etape;
+  position: relative;
+  padding-left: 46px;
+}
+.comment-steps li::before {
+  content: counter(etape);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--gold-grad);
+  color: var(--gold-ink);
+  font-weight: 800;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.comment-steps__title { font-weight: 700; margin: 4px 0 4px; }
+.comment-steps__text { color: var(--muted); font-size: 15px; line-height: 1.7; margin: 0; }
+
+.comment-item__more { margin: 24px 0 0; color: var(--muted); font-size: 15px; }
+
+@media (max-width: 640px) {
+  /* Le titre passe sur deux lignes : le « + » descendrait avec le sous-titre.
+     On l'ancre en haut à droite pour qu'il reste sur la ligne du titre. */
+  .comment-item summary { padding: 20px 52px 20px 20px; gap: 6px; position: relative; }
+  .comment-item summary::after { position: absolute; right: 20px; top: 18px; margin-left: 0; }
+  .comment-item__label { font-size: 19px; }
+  .comment-item__body { padding: 0 20px 22px; }
+}
+
+/* --------------------------------------------------------------------------
+   Bouton WhatsApp flottant
+   -------------------------------------------------------------------------- */
+
+.wa-fab {
+  position: fixed;
+  right: max(20px, env(safe-area-inset-right));
+  bottom: max(20px, env(safe-area-inset-bottom));
+  z-index: 50;                       /* sous les surcouches (60 et plus) */
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #25D366;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 20px rgba(18, 20, 28, .28);
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.wa-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(18, 20, 28, .34);
+}
+.wa-fab:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+.wa-fab__icon { display: block; }
+
+/* Une surcouche est ouverte : le bouton flotterait par-dessus le parcours. */
+body.a-surcouche .wa-fab { display: none; }
+
+@media (max-width: 640px) {
+  .wa-fab { width: 52px; height: 52px; }
+  .wa-fab__icon { width: 26px; height: 26px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-fab { transition: none; }
+  .wa-fab:hover { transform: none; }
+}

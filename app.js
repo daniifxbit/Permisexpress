@@ -340,8 +340,12 @@
   var lastFocused = null;
   var openOverlays = [];
 
+  /* Appelée exactement à l'ouverture et à la fermeture des surcouches : elle
+     porte donc aussi le drapeau qui retire le bouton WhatsApp flottant, qui
+     sinon resterait par-dessus le parcours d'inscription. */
   function lockScroll(locked) {
     document.body.style.overflow = locked ? 'hidden' : '';
+    document.body.classList.toggle('a-surcouche', locked);
   }
 
   function openOverlay(node, focusTarget) {

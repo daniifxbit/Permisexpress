@@ -92,8 +92,34 @@ await page.goto(BASE + '/', { waitUntil: 'networkidle' });
 
 /* ---------- 1. Page vitrine ---------- */
 ok('titre de page', (await page.title()).includes('Permis Express'));
-ok('aucun lien wa.me', !(await page.content()).includes('wa.me'));
 ok('le code admin n\'est pas dans la page', !(await page.content()).includes('Capaciteur'));
+
+/* Bouton WhatsApp flottant : un lien direct, sans JavaScript. */
+{
+  const wa = page.locator('.wa-fab');
+  ok('bouton WhatsApp visible', await wa.isVisible());
+  const href = await wa.getAttribute('href');
+  ok('bouton WhatsApp : bon numéro', href.startsWith('https://wa.me/33676326199'), href);
+  ok('bouton WhatsApp : nouvel onglet sûr',
+    await wa.getAttribute('target') === '_blank' && (await wa.getAttribute('rel')).includes('noopener'));
+  ok('bouton WhatsApp : intitulé pour les lecteurs d\'écran',
+    (await wa.getAttribute('aria-label') || '').length > 0);
+}
+
+/* « Comment ça marche ? » : replié au chargement, cinq étapes une fois ouvert. */
+{
+  const volet = page.locator('#comment .comment-item');
+  ok('« Comment ça marche ? » replié au chargement', !(await volet.evaluate((n) => n.open)));
+  ok('« Comment ça marche ? » : étapes masquées',
+    await page.locator('#comment .comment-steps').isHidden());
+  await volet.locator('summary').click();
+  ok('« Comment ça marche ? » s\'ouvre au clic', await volet.evaluate((n) => n.open));
+  ok('« Comment ça marche ? » : 5 étapes', (await page.locator('#comment .comment-steps li').count()) === 5);
+  const texte = await volet.textContent();
+  ok('« Comment ça marche ? » : les cinq intitulés',
+    ['Inscription', 'Examen', 'Délai', 'Résultats', 'Points'].every((t) => texte.includes(t)));
+  await volet.locator('summary').click();
+}
 ok('8 cartes tarifs', (await page.locator('#tarifsGrid .card-tarif').count()) === 8);
 ok('6 avis', (await page.locator('.card-review').count()) === 6);
 ok('6 questions FAQ', (await page.locator('.faq-item').count()) === 6);
@@ -116,6 +142,7 @@ ok('un seul moyen de paiement au catalogue serveur',
 /* ---------- 2. Parcours : choix et validation ---------- */
 await page.locator('.card-tarif[data-permit="A2"] [data-action="choose"]').click();
 ok('parcours ouvert à l\'étape 2', await page.locator('.funnel-step[data-step="2"]').isVisible());
+ok('bouton WhatsApp retiré pendant le parcours', await page.locator('.wa-fab').isHidden());
 ok('permis retenu = A2', (await page.locator('.chosen-tag').textContent()).includes('Permis A2'));
 
 await page.locator('[data-action="submit-info"]').click();

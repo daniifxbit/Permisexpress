@@ -10,7 +10,10 @@ administrateur est protégé par une authentification serveur.
 ## Ce que fait le site
 
 **Vitrine** — héro, « Pourquoi nous », tarifs (8 catégories), notre méthode,
-suivi de dossier, avis clients, FAQ, pied de page.
+« Comment ça marche ? » (volet déroulant), suivi de dossier, avis clients, FAQ,
+pied de page. Un **bouton WhatsApp flottant** ouvre une conversation avec le
+numéro de l'agence ; c'est un lien simple, qui fonctionne même si `app.js` ne
+se charge pas, et il s'efface pendant que le parcours d'inscription est ouvert.
 
 **Parcours d'inscription intégré**, en surcouche plein écran :
 
@@ -199,6 +202,14 @@ modifie dans l'onglet **Réglages**, à côté des coordonnées. Elle est identi
 pour tous : le rapprochement d'un virement avec un dossier repose sur la preuve
 de paiement jointe, pas sur le libellé bancaire.
 
+### Numéro WhatsApp
+
+Il apparaît à trois endroits d'`index.html`, sous la forme
+`https://wa.me/33676326199?text=…` : le bouton flottant en bas de page, le lien
+du volet « Comment ça marche ? » et celui du pied de page. Le format `wa.me`
+attend l'indicatif pays sans `+` ni espaces. Le texte après `?text=` est le
+message pré-rempli dans la conversation, encodé pour l'URL.
+
 ### Divers
 
 Dans `index.html` : remplacer `https://exemple.fr` par le domaine
@@ -283,7 +294,7 @@ d'essai des tests (ci-dessous) ou `vercel dev`.
 `qa/parcours.mjs` démarre `qa/serveur-test.mjs` — le site, les **vraies**
 fonctions serverless, et un faux Supabase qui rejoue la portion de son API REST
 que le code utilise — puis déroule le parcours complet dans un navigateur :
-199 assertions couvrant la vitrine, la validation, la photo d'identité et le
+208 assertions couvrant la vitrine, le bouton WhatsApp, la validation, la photo d'identité et le
 NEPH, le virement, la preuve obligatoire, l'espace administrateur, l'onglet
 Réglages, le suivi, le renvoi de preuve, les contrôles d'accès de l'API,
 l'accessibilité clavier, le rendu mobile/tablette/bureau, le repli sur un IBAN
